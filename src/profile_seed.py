@@ -103,8 +103,7 @@ def seed_profile_prompt(agent_id: str, name: str, seed: str) -> list[dict[str, s
                 "not a hobby, not a generic activity, and not a one-word category. Use these seed anchors to force "
                 "variety; combine or reinterpret them, but do not output the same topic for different seeds. "
                 f"Seed anchors: {', '.join(anchors)}. "
-                "Do not use gardening, cooking, traveling, climate change, indigenous communities, social media politics, "
-                "AI ethics, or automation as starting interests. Avoid biography, demographics, protected "
+                "Avoid biography, demographics, protected "
                 "attributes, fixed personality identity, politics-as-identity, medical identity, and rules that "
                 "say always/never/must/only. Do not mention the seed or agent id as a research topic. "
                 "Return 3 current_interests, no preferred_sources, 1-2 gentle self_rules. Keep every string short. "
@@ -149,10 +148,6 @@ def seed_payload_error(payload: dict[str, Any]) -> str:
     if len(interests) < 3:
         return "fewer than 3 interests"
     lowered = " | ".join(item.lower() for item in interests)
-    banned = ["gardening", "cooking", "traveling", "climate change", "indigenous", "social media", "ai ethics", "automation"]
-    found = [term for term in banned if term in lowered]
-    if found:
-        return f"banned generic or repeated topics: {', '.join(found)}"
     one_word = [item for item in interests if len(item.split()) < 4]
     if one_word:
         return f"interests too generic: {', '.join(one_word)}"
