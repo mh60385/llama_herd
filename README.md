@@ -10,7 +10,8 @@ The project assumes llama.cpp server and SearXNG are already running locally. It
 
 - llama.cpp OpenAI-compatible API: `http://127.0.0.1:10000/v1`
 - SearXNG search endpoint: `http://127.0.0.1:8888/search`
-- Search episodes rely on SearXNG results only by default; no direct Wikipedia API is required.
+- Initial profile seeding uses deterministic Wikipedia page summaries plus the local model.
+- Search episodes rely on SearXNG results only by default.
 - One local small instruct model served through llama.cpp
 - Reasoning treated as off; prompts require short structured JSON and never request chain-of-thought
 - Runs are sequential for Jetson memory friendliness
@@ -48,6 +49,8 @@ Use `--reset` to clear experiment data and recreate the blank profile:
 python scripts/init_experiment.py --reset
 ```
 
+Initialization stores the profile seed, selected Wikipedia pages, and generated initial profile in `data/profiles/<agent_id>.json`. The same seed selects the same Wikipedia pages.
+
 ## Run
 
 Run one search episode:
@@ -80,6 +83,17 @@ Analyze drift:
 python scripts/analyze_drift.py
 ```
 
+Compute article-grade metrics offline after a run:
+
+```bash
+python -m llama_herd.metrics \
+  --episodes data/logs/episodes.jsonl \
+  --profiles data/profiles \
+  --out data/metrics \
+  --encoder sentence-transformers/all-MiniLM-L6-v2 \
+  --device cpu
+```
+
 ## Data Outputs
 
 - Profile JSON: `data/profiles/agent_01.json`
@@ -87,6 +101,7 @@ python scripts/analyze_drift.py
 - Per-agent JSONL: `data/logs/agent_01.jsonl`
 - Source text and snippets: `data/sources/`
 - Raw search cache: `data/sources/search_cache/`
+- Offline metrics: `data/metrics/`
 - SQLite database: `data/db/world_model_lab.sqlite`
 
 Everything written to SQLite should also be recoverable from JSONL. Each episode stores raw model request/response records plus prompt metadata, including prompt version and prompt file hash, so prompt changes can be monitored across runs.
@@ -95,4 +110,4 @@ Everything written to SQLite should also be recoverable from JSONL. Each episode
 
 LLM requests are retried with backoff. If `LLM_RESTART_COMMAND` is configured, the runner also restarts llama.cpp once and retries before giving up. Search failures, empty SearXNG results, source fetch failures, malformed model JSON, and weak snippets are logged as valid experimental data instead of being hidden.
 
-No paid APIs, dashboards, Streamlit, LangChain, LlamaIndex, Celery, FastAPI, or heavy ML/NLP dependencies are used.
+No paid APIs, dashboards, Streamlit, LangChain, LlamaIndex, Celery, or FastAPI are used. Sentence Transformers is only used in the offline metrics step, not during live episode generation.

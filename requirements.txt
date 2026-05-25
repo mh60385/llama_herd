@@ -3,3 +3,4 @@ pydantic
 pyyaml
 python-dotenv
 beautifulsoup4
+sentence-transformers

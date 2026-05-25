@@ -17,7 +17,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run sequential drift episodes.")
     parser.add_argument("--agent", default="agent_01", help="Agent ID to run.")
     parser.add_argument("--episodes", type=int, default=None, help="Number of episodes to run.")
-    parser.add_argument("--all-agents", action="store_true", help="Run configured agents once each.")
+    parser.add_argument("--all-agents", action="store_true", help="Run configured agents sequentially.")
     args = parser.parse_args()
 
     config = load_experiment_config()
@@ -25,9 +25,18 @@ def main() -> None:
     monitor = SystemMonitor(runner.settings, config)
     if args.all_agents:
         agents = [item["agent_id"] for item in load_agents_config().get("agents", [])]
-        for index, agent_id in enumerate(agents):
-            monitor.pre_episode(index, len(agents))
-            print_episode_summary(runner.run_episode(agent_id))
+        episodes = args.episodes or int(config.get("episodes_per_run", 10))
+        delay = float(config.get("inter_episode_delay_seconds", 0))
+        total = len(agents) * episodes
+        completed = 0
+        for agent_id in agents:
+            for index in range(episodes):
+                print(f"\nRunning episode {index + 1}/{episodes} for {agent_id} ({completed + 1}/{total} total)")
+                monitor.pre_episode(completed, total)
+                print_episode_summary(runner.run_episode(agent_id))
+                completed += 1
+                if delay > 0 and completed < total:
+                    time.sleep(delay)
         return
 
     episodes = args.episodes or int(config.get("episodes_per_run", 10))

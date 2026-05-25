@@ -4,6 +4,8 @@ __pycache__/
 .env
 data/profiles/*.json
 data/logs/*.jsonl
+data/logs/*.json
+data/metrics/
 data/sources/*.txt
 data/sources/search_cache/*.json
 data/db/*.sqlite

@@ -20,12 +20,18 @@ class SystemMonitor:
         self.memory_restart_mb = int(config.get("memory_restart_available_mb", 1200))
         self.memory_warn_mb = int(config.get("memory_warn_available_mb", 1500))
         self.swap_warn_mb = int(config.get("swap_warn_used_mb", 2500))
+        self.swap_stop_mb = int(config.get("swap_stop_used_mb", 0))
         self.temp_warn_c = float(config.get("temperature_warn_c", 75.0))
         self.temp_pause_c = float(config.get("temperature_pause_c", 80.0))
         self.temp_stop_c = float(config.get("temperature_stop_c", 85.0))
         self.cooldown_seconds = float(config.get("thermal_cooldown_seconds", 60.0))
         self.max_cooldown_cycles = int(config.get("thermal_max_cooldown_cycles", 5))
         self.restart_every_episodes = int(config.get("llm_restart_every_episodes", 10))
+        self.restart_if_memory_trending_down = bool(config.get("llm_restart_if_memory_trending_down", True))
+        self.memory_trend_window = int(config.get("llm_memory_trend_window", 4))
+        self.min_restart_gap_episodes = int(config.get("llm_min_restart_gap_episodes", 3))
+        self._available_history: list[int] = []
+        self._last_restart_episode = -10_000
 
     def pre_episode(self, episode_index: int, total_episodes: int, progress: Any = print) -> dict[str, Any]:
         snapshot = self.snapshot(episode_index, total_episodes)
@@ -43,21 +49,56 @@ class SystemMonitor:
             self._log(snapshot)
             raise RuntimeError(f"System temperature too high to continue: {max_temp}C")
 
+        swap_used = snapshot.get("swap_used_mb")
+        if self.swap_stop_mb > 0 and isinstance(swap_used, int) and swap_used >= self.swap_stop_mb:
+            snapshot["action"] = "stop"
+            snapshot["reasons"] = [f"swap_used_mb_above_stop:{swap_used}"]
+            self._log(snapshot)
+            raise RuntimeError(f"System swap use too high to continue safely: {swap_used}MB")
+
         if isinstance(max_temp, (int, float)) and max_temp >= self.temp_pause_c:
             action = "thermal_pause"
             reasons.append(f"temperature_pause_c:{max_temp}")
             snapshot = self._cool_down(snapshot, episode_index, total_episodes, progress, reasons)
 
         available_mb = snapshot.get("available_mb")
-        if isinstance(available_mb, int) and available_mb < self.memory_restart_mb:
+        if isinstance(available_mb, int):
+            self._available_history.append(available_mb)
+            self._available_history = self._available_history[-max(2, self.memory_trend_window) :]
+
+        restart_gap_ok = episode_index - self._last_restart_episode >= self.min_restart_gap_episodes
+        memory_trending_down = self._memory_trending_down()
+        should_scheduled_restart = (
+            self.restart_every_episodes > 0
+            and episode_index > 0
+            and episode_index % self.restart_every_episodes == 0
+            and restart_gap_ok
+        )
+        should_trend_restart = (
+            self.restart_if_memory_trending_down
+            and restart_gap_ok
+            and memory_trending_down
+            and isinstance(available_mb, int)
+            and available_mb < self.memory_warn_mb
+        )
+
+        if isinstance(available_mb, int) and available_mb < self.memory_restart_mb and restart_gap_ok:
             action = "restart_llm"
             reasons.append(f"available_mb_below_restart:{available_mb}")
             self.restart_llm(progress)
+            self._last_restart_episode = episode_index
             snapshot = self.snapshot(episode_index, total_episodes)
-        elif self.restart_every_episodes > 0 and episode_index > 0 and episode_index % self.restart_every_episodes == 0:
+        elif should_scheduled_restart:
             action = "scheduled_restart_llm"
             reasons.append(f"scheduled_restart_every:{self.restart_every_episodes}")
             self.restart_llm(progress)
+            self._last_restart_episode = episode_index
+            snapshot = self.snapshot(episode_index, total_episodes)
+        elif should_trend_restart:
+            action = "trend_restart_llm"
+            reasons.append(f"available_mb_trending_down:{self._available_history}")
+            self.restart_llm(progress)
+            self._last_restart_episode = episode_index
             snapshot = self.snapshot(episode_index, total_episodes)
         elif isinstance(available_mb, int) and available_mb < self.memory_warn_mb:
             reasons.append(f"available_mb_below_warn:{available_mb}")
@@ -81,6 +122,14 @@ class SystemMonitor:
             subprocess.run(self.settings.llm_restart_command, shell=True, check=False, timeout=45)
         if self.settings.llm_restart_wait > 0:
             time.sleep(self.settings.llm_restart_wait)
+
+    def _memory_trending_down(self) -> bool:
+        if len(self._available_history) < max(3, self.memory_trend_window):
+            return False
+        return all(
+            earlier > later
+            for earlier, later in zip(self._available_history, self._available_history[1:])
+        )
 
     def snapshot(self, episode_index: int, total_episodes: int) -> dict[str, Any]:
         mem = self._memory()

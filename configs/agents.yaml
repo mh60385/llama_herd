@@ -1,3 +1,16 @@
 agents:
   - agent_id: agent_01
     name: Agent 01
+    profile_seed: agent_01:llama-herd-wiki:2026-05-25
+  - agent_id: agent_02
+    name: Agent 02
+    profile_seed: agent_02:llama-herd-wiki:2026-05-25
+  - agent_id: agent_03
+    name: Agent 03
+    profile_seed: agent_03:llama-herd-wiki:2026-05-25
+  - agent_id: agent_04
+    name: Agent 04
+    profile_seed: agent_04:llama-herd-wiki:2026-05-25
+  - agent_id: agent_05
+    name: Agent 05
+    profile_seed: agent_05:llama-herd-wiki:2026-05-25

@@ -7,7 +7,7 @@ from typing import Any
 
 from .config import data_path
 from .llm_client import LLMClient
-from .profile_seed import deterministic_seeded_initial_profile, model_seeded_initial_profile
+from .profile_seed import deterministic_seeded_initial_profile, wiki_seeded_initial_profile
 from .schemas import AgentProfile, EpisodeLog
 from .utils import append_jsonl, read_json, write_json
 
@@ -104,7 +104,7 @@ class Storage:
         name = str(payload.get("name", agent_id))
         seed = f"{agent_id}:llama-herd:2026-05-25"
         try:
-            seeded = model_seeded_initial_profile(agent_id, name, seed, LLMClient())
+            seeded = wiki_seeded_initial_profile(agent_id, name, seed, LLMClient())
         except Exception:
             seeded = deterministic_seeded_initial_profile(agent_id, name, seed)
         initial = seeded["initial_profile"]
