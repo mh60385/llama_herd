@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 import uuid
 from typing import Any
 from urllib.parse import urlparse
@@ -231,13 +232,101 @@ class AgentRunner:
                 }
             )
             selected_index = 0
+        original_index = selected_index
+        selected_index, diversity = self._diversified_source_index(profile, results, selected_index)
+        if selected_index != original_index:
+            errors.append(
+                {
+                    "stage": "source_selection_diversity",
+                    "original_index": original_index,
+                    "selected_index": selected_index,
+                    **diversity,
+                }
+            )
+            payload["model_selected_index"] = original_index
+            payload["model_selected_url"] = results[original_index].url
+            payload["selection_reason"] = (
+                f"{payload.get('selection_reason', '')} "
+                f"Deterministic diversity override selected a less repeated source."
+            ).strip()
         payload["selected_index"] = selected_index
         payload["selected_url"] = results[selected_index].url
+        payload["diversity"] = diversity
         self._last_source_selection = payload
         self._progress(
             f"favourite source {selected_index + 1}/{len(results)}: {results[selected_index].title[:80]}"
         )
         return [results[selected_index]]
+
+    def _diversified_source_index(
+        self, profile: AgentProfile, results: list[Any], selected_index: int
+    ) -> tuple[int, dict[str, Any]]:
+        window = int(self.config.get("source_diversity_recent_window", 8))
+        domain_limit = int(self.config.get("source_diversity_max_recent_domain_uses", 2))
+        url_limit = int(self.config.get("source_diversity_max_recent_url_uses", 1))
+        recent_domains, recent_urls = self._recent_source_counts(profile, window)
+        selected = results[selected_index]
+        selected_domain = self._domain(selected.url)
+        selected_url = self._url_key(selected.url)
+        selected_repeated = (
+            (selected_url and recent_urls[selected_url] >= url_limit)
+            or (selected_domain and recent_domains[selected_domain] >= domain_limit)
+        )
+        ranked = sorted(
+            range(len(results)),
+            key=lambda index: self._source_diversity_rank(
+                results[index],
+                index,
+                recent_domains,
+                recent_urls,
+                domain_limit,
+                url_limit,
+            ),
+        )
+        best_index = ranked[0] if ranked else selected_index
+        best_rank = self._source_diversity_rank(
+            results[best_index], best_index, recent_domains, recent_urls, domain_limit, url_limit
+        )
+        selected_rank = self._source_diversity_rank(
+            selected, selected_index, recent_domains, recent_urls, domain_limit, url_limit
+        )
+        should_override = selected_repeated and best_index != selected_index and best_rank < selected_rank
+        chosen_index = best_index if should_override else selected_index
+        chosen = results[chosen_index]
+        return chosen_index, {
+            "recent_window": window,
+            "domain_limit": domain_limit,
+            "url_limit": url_limit,
+            "selected_was_repeated": bool(selected_repeated),
+            "chosen_domain": self._domain(chosen.url),
+            "chosen_url_recent_count": recent_urls[self._url_key(chosen.url)],
+            "chosen_domain_recent_count": recent_domains[self._domain(chosen.url)],
+        }
+
+    def _source_diversity_rank(
+        self,
+        result: Any,
+        index: int,
+        recent_domains: Counter[str],
+        recent_urls: Counter[str],
+        domain_limit: int,
+        url_limit: int,
+    ) -> tuple[int, int, int, int, int]:
+        domain = self._domain(result.url)
+        url = self._url_key(result.url)
+        url_count = recent_urls[url]
+        domain_count = recent_domains[domain]
+        over_limit = int((url and url_count >= url_limit) or (domain and domain_count >= domain_limit))
+        missing_url = int(not url)
+        return (over_limit, domain_count, url_count, missing_url, index)
+
+    def _recent_source_counts(self, profile: AgentProfile, window: int) -> tuple[Counter[str], Counter[str]]:
+        domains: Counter[str] = Counter()
+        urls: Counter[str] = Counter()
+        for observation in profile.observations[-window:]:
+            domains.update(domain for domain in observation.get("source_domains", []) if domain)
+            urls.update(url for url in observation.get("source_urls", []) if url)
+        return domains, urls
 
     def _filter_fields(self, payload: dict[str, Any], model: Any) -> dict[str, Any]:
         reserved = {"agent_id", "episode_id"}
@@ -276,6 +365,9 @@ class AgentRunner:
             "timestamp": now,
             "query": search_query,
             "source_domains": domains,
+            "source_urls": sorted(
+                {self._url_key(source.url) for source in selected_sources if self._url_key(source.url)}
+            ),
             "first_result_topic": first_result_topic,
             "observations": clamp_list(proposal.observations, 8),
             "candidate_interests": clamp_list(safe_candidates, 8),
@@ -396,6 +488,14 @@ class AgentRunner:
         if host.startswith("www."):
             host = host[4:]
         return host
+
+    def _url_key(self, url: str) -> str:
+        parsed = urlparse(url or "")
+        host = parsed.netloc.lower()
+        if host.startswith("www."):
+            host = host[4:]
+        path = parsed.path.rstrip("/")
+        return f"{host}{path}".lower() if host else ""
 
     def _anti_anchor_query(self, profile: AgentProfile, query: str) -> tuple[str, dict[str, Any]]:
         recent = profile.recent_queries[-3:]

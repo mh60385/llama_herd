@@ -1,6 +1,8 @@
 .venv/
 __pycache__/
 *.pyc
+*jsonl
+*json
 .env
 data/profiles/*.json
 data/logs/*.jsonl
@@ -10,3 +12,4 @@ data/wiki_seed_cache/
 data/sources/*.txt
 data/sources/search_cache/*.json
 data/db/*.sqlite
+

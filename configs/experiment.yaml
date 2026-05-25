@@ -3,6 +3,9 @@ episodes_per_run: 100
 max_search_results: 10
 max_selected_sources: 1
 max_source_chars: 4000
+source_diversity_recent_window: 8
+source_diversity_max_recent_domain_uses: 2
+source_diversity_max_recent_url_uses: 1
 temperature: 0.7
 top_p: 0.9
 inter_episode_delay_seconds: 2.0

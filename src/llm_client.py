@@ -71,8 +71,7 @@ class LLMClient:
             "top_p": top_p,
             "stream": False,
         }
-        if max_tokens is not None:
-            payload["max_tokens"] = max_tokens
+        payload["max_tokens"] = max_tokens if max_tokens is not None else self.settings.llm_max_tokens
         content = ""
         try:
             response = self._request(
@@ -136,6 +135,7 @@ class LLMClient:
             "temperature": temperature,
             "top_p": top_p,
             "stream": False,
+            "max_tokens": self.settings.llm_repair_max_tokens,
         }
         try:
             response = self._request(
