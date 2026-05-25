@@ -71,6 +71,27 @@ Run a longer drift check later by setting the episode count explicitly:
 python scripts/run_batch.py --agent agent_01 --episodes 10
 ```
 
+Run the full configured study sequentially:
+
+```bash
+python scripts/init_experiment.py --reset
+python scripts/run_batch.py --all-agents
+```
+
+With the default config this runs 5 agents for 100 episodes each.
+
+Write a readable latest-status file:
+
+```bash
+python scripts/write_latest_status.py
+```
+
+Open:
+
+```text
+data/logs/latest_status.md
+```
+
 Run text mode:
 
 ```bash

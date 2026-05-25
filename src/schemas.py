@@ -19,6 +19,9 @@ class AgentProfile(BaseModel):
     agent_id: str
     name: str
     profile_seed: str = ""
+    wiki_seed_pages: list[dict[str, Any]] = Field(default_factory=list)
+    seed_generation_source: str = ""
+    seed_generation_error: str = ""
     initial_profile: dict[str, Any] = Field(default_factory=dict)
     first_person_profile: str = "I am a seeded local research profile. My stable interests require repeated evidence."
     current_interests: list[str] = Field(default_factory=list)

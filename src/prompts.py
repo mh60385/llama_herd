@@ -119,7 +119,7 @@ def reflection_prompt(profile: dict[str, Any], diary: dict[str, Any], summaries:
             "role": "user",
             "content": (
                 "Reflect on observable first-person research behaviour only. Do not invent identity or personality.\n"
-                f"Prompt conditioning profile before episode: {_json(prompt_conditioning_profile(profile))}\n"
+                f"Prompt conditioning profile before episode: {_json(prompt_conditioning_profile(profile, include_tentative=False))}\n"
                 f"Diary: {_json(diary)}\nSource summaries: {_json(summaries)}\n"
                 'Return JSON: {"observed_behaviour":"...","repeated_patterns":"...",'
                 '"source_preferences":"...","uncertainty_handling":"...","possible_drift":"...",'
@@ -138,7 +138,7 @@ def profile_update_prompt(profile: dict[str, Any], diary: dict[str, Any], reflec
                 "Extract weak episode observations only. Do not update identity, stable interests, preferred sources, "
                 "search style, uncertainty style, or self-rules. One source or one episode can only create observations "
                 "and candidate interests. Stable promotion is handled later by deterministic recurrence rules.\n"
-                f"Prompt conditioning profile before episode: {_json(prompt_conditioning_profile(profile))}\n"
+                f"Prompt conditioning profile before episode: {_json(prompt_conditioning_profile(profile, include_tentative=False))}\n"
                 f"Diary: {_json(diary)}\nReflection: {_json(reflection)}\n"
                 'Return JSON: {"observations":["..."],"candidate_interests":["..."],'
                 '"candidate_source_domains":["..."],"recent_memory_summary":"...",'

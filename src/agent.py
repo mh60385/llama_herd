@@ -385,6 +385,8 @@ class AgentRunner:
         lowered = text.lower()
         if not text or any(term in lowered for term in BLOCKED_PROFILE_TERMS):
             return ""
+        if text.startswith(("{", "[")) or "'interest':" in lowered or '"interest":' in lowered:
+            return ""
         if any(term in lowered for term in STRICT_RULE_TERMS):
             return ""
         return text[:160]

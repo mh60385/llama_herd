@@ -7,7 +7,7 @@ from typing import Any
 
 from .config import data_path
 from .llm_client import LLMClient
-from .profile_seed import deterministic_seeded_initial_profile, wiki_seeded_initial_profile
+from .profile_seed import deterministic_public_world_fallback_profile, wiki_seeded_initial_profile
 from .schemas import AgentProfile, EpisodeLog
 from .utils import append_jsonl, read_json, write_json
 
@@ -95,21 +95,29 @@ class Storage:
         if not payload:
             raise FileNotFoundError(f"Profile not found for {agent_id}. Run scripts/init_experiment.py first.")
         payload = self._migrate_profile_payload(payload)
+        payload = self._clean_profile_payload(payload)
         return AgentProfile(**payload)
 
     def _migrate_profile_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         if payload.get("profile_seed") and payload.get("initial_profile"):
-            return payload
+            migrated = dict(payload)
+            migrated.setdefault("wiki_seed_pages", [])
+            migrated.setdefault("seed_generation_source", "")
+            migrated.setdefault("seed_generation_error", "")
+            return migrated
         agent_id = str(payload.get("agent_id", "agent"))
         name = str(payload.get("name", agent_id))
         seed = f"{agent_id}:llama-herd:2026-05-25"
         try:
             seeded = wiki_seeded_initial_profile(agent_id, name, seed, LLMClient())
         except Exception:
-            seeded = deterministic_seeded_initial_profile(agent_id, name, seed)
+            seeded = deterministic_public_world_fallback_profile(agent_id, name, seed)
         initial = seeded["initial_profile"]
         migrated = dict(payload)
         migrated["profile_seed"] = seeded["profile_seed"]
+        migrated["wiki_seed_pages"] = list(seeded.get("wiki_seed_pages", []))
+        migrated["seed_generation_source"] = str(seeded.get("seed_generation_source", ""))
+        migrated["seed_generation_error"] = str(seeded.get("seed_generation_error", ""))
         migrated["initial_profile"] = initial
         migrated["first_person_profile"] = initial["first_person_profile"]
         migrated["current_interests"] = list(initial["current_interests"])
@@ -122,6 +130,36 @@ class Storage:
         migrated["stable_interests"] = list(initial["current_interests"])
         migrated.setdefault("recent_queries", [])
         return migrated
+
+    def _clean_profile_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        cleaned = dict(payload)
+        cleaned["tentative_interests"] = [
+            item
+            for item in cleaned.get("tentative_interests", [])
+            if isinstance(item, dict) and self._valid_interest_text(str(item.get("interest", "")))
+        ]
+        observations = []
+        for observation in cleaned.get("observations", []):
+            if not isinstance(observation, dict):
+                continue
+            copy = dict(observation)
+            copy["candidate_interests"] = [
+                interest
+                for interest in copy.get("candidate_interests", [])
+                if self._valid_interest_text(str(interest))
+            ]
+            observations.append(copy)
+        cleaned["observations"] = observations
+        return cleaned
+
+    def _valid_interest_text(self, value: str) -> bool:
+        text = str(value or "").strip()
+        lowered = text.lower()
+        if not text:
+            return False
+        if text.startswith(("{", "[")) or "'interest':" in lowered or '"interest":' in lowered:
+            return False
+        return True
 
     def save_profile(self, profile: AgentProfile) -> None:
         payload = profile.model_dump()

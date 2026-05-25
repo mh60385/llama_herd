@@ -6,6 +6,7 @@ data/profiles/*.json
 data/logs/*.jsonl
 data/logs/*.json
 data/metrics/
+data/wiki_seed_cache/
 data/sources/*.txt
 data/sources/search_cache/*.json
 data/db/*.sqlite
