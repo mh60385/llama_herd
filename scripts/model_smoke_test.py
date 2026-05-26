@@ -16,7 +16,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.config import data_path
 from src.llm_client import LLMClient
 from src.profile_seed import model_seeded_initial_profile
-from src.prompts import profile_update_prompt, search_query_prompt, source_summary_prompt
+from src.prompts import (
+    diary_prompt,
+    profile_update_prompt,
+    reflection_prompt,
+    search_query_prompt,
+    source_selection_prompt,
+    source_summary_prompt,
+)
 from src.utils import utc_now, write_json
 
 
@@ -69,7 +76,7 @@ def main() -> None:
     parser.add_argument("--only", nargs="*", default=[], help="Model names to test.")
     parser.add_argument("--ctx", type=int, default=2048, help="llama.cpp context length.")
     parser.add_argument("--ngl", type=int, default=99, help="llama.cpp GPU layer count.")
-    parser.add_argument("--max-tokens", type=int, default=192, help="Max generated tokens per prompt.")
+    parser.add_argument("--max-tokens", type=int, default=240, help="Fallback max generated tokens per prompt.")
     args = parser.parse_args()
 
     selected = [item for item in MODELS if not args.only or item["name"] in args.only]
@@ -259,16 +266,54 @@ def build_prompts(model: dict[str, str]) -> list[dict[str, Any]]:
                 },
             ],
             "required": ["ok", "family", "reasoning"],
+            "max_tokens": 80,
         },
         {
             "name": "search_query_prompt",
             "messages": search_query_prompt(profile),
             "required": ["search_query", "reason_for_query", "expected_source_type", "uncertainty"],
+            "max_tokens": 120,
+        },
+        {
+            "name": "source_selection_prompt",
+            "messages": source_selection_prompt(profile, [result]),
+            "required": ["selected_index", "selected_title", "selection_reason", "expected_value"],
+            "max_tokens": 160,
         },
         {
             "name": "source_summary_prompt",
             "messages": source_summary_prompt(profile, result, result["snippet"]),
             "required": ["summary", "useful_facts", "uncertainty_notes", "source_relevance"],
+            "max_tokens": 240,
+        },
+        {
+            "name": "diary_prompt",
+            "messages": diary_prompt(profile, [{"summary": result["snippet"], "useful_facts": [], "uncertainty_notes": []}]),
+            "required": [
+                "diary_summary",
+                "what_caught_attention",
+                "what_was_uncertain",
+                "possible_next_interest",
+                "sources_mentioned",
+            ],
+            "max_tokens": 220,
+        },
+        {
+            "name": "reflection_prompt",
+            "messages": reflection_prompt(
+                profile,
+                diary,
+                [{"summary": result["snippet"], "useful_facts": [], "uncertainty_notes": []}],
+            ),
+            "required": [
+                "observed_behaviour",
+                "repeated_patterns",
+                "source_preferences",
+                "uncertainty_handling",
+                "possible_drift",
+                "concise_self_assessment",
+            ],
+            "max_tokens": 220,
         },
         {
             "name": "observation_extraction_prompt",
@@ -281,6 +326,7 @@ def build_prompts(model: dict[str, str]) -> list[dict[str, Any]]:
                 "justification",
                 "confidence",
             ],
+            "max_tokens": 220,
         },
     ]
 
@@ -292,7 +338,7 @@ def run_prompt(prompt: dict[str, Any], max_tokens: int) -> dict[str, Any]:
         "messages": prompt["messages"],
         "temperature": 0,
         "top_p": 1,
-        "max_tokens": max_tokens,
+        "max_tokens": int(prompt.get("max_tokens") or max_tokens),
         "stream": False,
     }
     try:

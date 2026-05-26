@@ -19,7 +19,7 @@ class Settings:
         self.llm_api_key = os.getenv("LLM_API_KEY", "not-needed")
         self.llm_model = os.getenv("LLM_MODEL", "local-model")
         self.llm_max_tokens = int(os.getenv("LLM_MAX_TOKENS", "300"))
-        self.llm_repair_max_tokens = int(os.getenv("LLM_REPAIR_MAX_TOKENS", "180"))
+        self.llm_repair_max_tokens = int(os.getenv("LLM_REPAIR_MAX_TOKENS", "300"))
         self.llm_retry_attempts = int(os.getenv("LLM_RETRY_ATTEMPTS", "3"))
         self.llm_retry_initial_delay = float(os.getenv("LLM_RETRY_INITIAL_DELAY", "1.0"))
         self.llm_retry_max_delay = float(os.getenv("LLM_RETRY_MAX_DELAY", "8.0"))

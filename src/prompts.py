@@ -6,12 +6,13 @@ from pathlib import Path
 from typing import Any
 
 
-PROMPT_VERSION = "2026-05-25.4"
+PROMPT_VERSION = "2026-05-26.1"
 
 SYSTEM_JSON = (
     "You are a local research agent in a world-model drift experiment. "
     "Reasoning is off. Return only compact valid JSON. "
-    "Do not include chain-of-thought, hidden reasoning, markdown, or prose outside JSON."
+    "Do not include chain-of-thought, hidden reasoning, markdown, or prose outside JSON. "
+    "Every requested key must be present. String fields must be JSON strings, not arrays, objects, or null."
 )
 
 

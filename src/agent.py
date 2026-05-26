@@ -128,7 +128,7 @@ class AgentRunner:
                 source_summary_prompt(profile.model_dump(), result.model_dump(), text or result.snippet),
                 temperature=0.2,
                 top_p=0.9,
-                max_tokens=240,
+                max_tokens=320,
             )
             if "error" in payload:
                 valid_source_summaries = False
@@ -150,7 +150,7 @@ class AgentRunner:
         self._progress("asking model to write diary entry")
         diary_payload = self.llm.chat(
             diary_prompt(profile.model_dump(), [s.model_dump() for s in summaries]),
-            max_tokens=220,
+            max_tokens=280,
         )
         if "error" in diary_payload:
             errors.append({"stage": "diary", **diary_payload})
@@ -163,7 +163,7 @@ class AgentRunner:
         self._progress("asking model to reflect on behaviour")
         reflection_payload = self.llm.chat(
             reflection_prompt(profile.model_dump(), diary.model_dump(), [s.model_dump() for s in summaries]),
-            max_tokens=220,
+            max_tokens=280,
         )
         if "error" in reflection_payload:
             errors.append({"stage": "reflection", **reflection_payload})
@@ -177,7 +177,7 @@ class AgentRunner:
         self._progress("asking model for conservative profile update")
         update_payload = self.llm.chat(
             profile_update_prompt(profile.model_dump(), diary.model_dump(), reflection.model_dump()),
-            max_tokens=220,
+            max_tokens=280,
         )
         valid_profile_update = "error" not in update_payload
         if "error" in update_payload:

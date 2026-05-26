@@ -15,6 +15,22 @@ def _string_list(value: Any) -> list[str]:
     return [str(value).strip()] if str(value).strip() else []
 
 
+def _text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        return "; ".join(str(item).strip() for item in value if str(item).strip())
+    if isinstance(value, dict):
+        return "; ".join(
+            f"{key}: {item}".strip()
+            for key, item in value.items()
+            if str(item).strip()
+        )
+    return str(value).strip()
+
+
 class AgentProfile(BaseModel):
     agent_id: str
     name: str
@@ -91,6 +107,11 @@ class DiaryEntry(BaseModel):
     def coerce_sources(cls, value: Any) -> list[str]:
         return _string_list(value)
 
+    @field_validator("diary_summary", "what_caught_attention", "what_was_uncertain", "possible_next_interest", mode="before")
+    @classmethod
+    def coerce_diary_text(cls, value: Any) -> str:
+        return _text(value)
+
 
 class Reflection(BaseModel):
     agent_id: str
@@ -101,6 +122,19 @@ class Reflection(BaseModel):
     uncertainty_handling: str = ""
     possible_drift: str = ""
     concise_self_assessment: str = ""
+
+    @field_validator(
+        "observed_behaviour",
+        "repeated_patterns",
+        "source_preferences",
+        "uncertainty_handling",
+        "possible_drift",
+        "concise_self_assessment",
+        mode="before",
+    )
+    @classmethod
+    def coerce_reflection_text(cls, value: Any) -> str:
+        return _text(value)
 
 
 class ProfileUpdateProposal(BaseModel):
@@ -121,19 +155,7 @@ class ProfileUpdateProposal(BaseModel):
     @field_validator("recent_memory_summary", "justification", "confidence", mode="before")
     @classmethod
     def coerce_proposal_text(cls, value: Any) -> str:
-        if value is None:
-            return ""
-        if isinstance(value, str):
-            return value.strip()
-        if isinstance(value, list):
-            return "; ".join(str(item).strip() for item in value if str(item).strip())
-        if isinstance(value, dict):
-            return "; ".join(
-                f"{key}: {item}".strip()
-                for key, item in value.items()
-                if str(item).strip()
-            )
-        return str(value).strip()
+        return _text(value)
 
 
 class EpisodeLog(BaseModel):
