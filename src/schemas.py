@@ -19,7 +19,6 @@ class AgentProfile(BaseModel):
     agent_id: str
     name: str
     profile_seed: str = ""
-    wiki_seed_pages: list[dict[str, Any]] = Field(default_factory=list)
     seed_generation_source: str = ""
     seed_generation_error: str = ""
     initial_profile: dict[str, Any] = Field(default_factory=dict)
@@ -66,6 +65,7 @@ class SourceSummary(BaseModel):
     title: str = ""
     url: str = ""
     backend: str = ""
+    source_type: str = "unknown"
     summary: str = ""
     useful_facts: list[str] = Field(default_factory=list)
     uncertainty_notes: list[str] = Field(default_factory=list)
@@ -117,6 +117,23 @@ class ProfileUpdateProposal(BaseModel):
     @classmethod
     def coerce_proposal_lists(cls, value: Any) -> list[str]:
         return _string_list(value)
+
+    @field_validator("recent_memory_summary", "justification", "confidence", mode="before")
+    @classmethod
+    def coerce_proposal_text(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, list):
+            return "; ".join(str(item).strip() for item in value if str(item).strip())
+        if isinstance(value, dict):
+            return "; ".join(
+                f"{key}: {item}".strip()
+                for key, item in value.items()
+                if str(item).strip()
+            )
+        return str(value).strip()
 
 
 class EpisodeLog(BaseModel):

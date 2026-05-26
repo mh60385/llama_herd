@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import shutil
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -36,13 +35,8 @@ def main() -> None:
     usage = shutil.disk_usage(Path.cwd())
     print(f"Free disk: {usage.free // (1024 ** 3)} GB")
 
-    storage = Storage()
-    try:
-        with sqlite3.connect(storage.db_path) as conn:
-            conn.execute("select 1")
-        print(f"SQLite: ok ({storage.db_path})")
-    except Exception as exc:
-        print(f"SQLite: failed ({exc})")
+    Storage()
+    print(f"Data directories: ok ({data_path()})")
 
     llm = LLMClient(settings)
     ok, detail = llm.healthcheck()

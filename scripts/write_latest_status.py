@@ -56,7 +56,6 @@ def build_report(episodes: list[dict], profiles: dict[str, dict], last_count: in
         last_episode = agent_episodes[-1] if agent_episodes else {}
         stable = profile.get("stable_interests") or []
         tentative = profile.get("tentative_interests") or []
-        pages = profile.get("wiki_seed_pages") or []
         lines.extend(
             [
                 f"### {agent_id}",
@@ -66,7 +65,6 @@ def build_report(episodes: list[dict], profiles: dict[str, dict], last_count: in
                 f"- Last query: `{last_episode.get('search_query', '')}`",
                 f"- Stable interests: {inline_list(stable)}",
                 f"- Tentative interests: `{len(tentative)}`",
-                f"- Wiki seed pages: {inline_list([page.get('title', '') for page in pages])}",
                 "",
             ]
         )

@@ -13,3 +13,8 @@ data/sources/*.txt
 data/sources/search_cache/*.json
 data/db/*.sqlite
 
+# transient experiment snapshots/workspaces
+data.backup-*/
+data.precomparison-*/
+.model_comparison_work-*/
+

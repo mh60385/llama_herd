@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import Counter
+import re
 import uuid
 from typing import Any
 from urllib.parse import urlparse
@@ -38,6 +38,26 @@ BLOCKED_PROFILE_TERMS = {
 
 STRICT_RULE_TERMS = {"always", "never", "avoid", "must", "only", "forbidden", "require", "refuse"}
 
+FILLER_INTERESTS = {"...", "…", "n/a", "none", "unknown", "misc", "miscellaneous"}
+VAGUE_INTERESTS = {
+    "artifacts",
+    "culture",
+    "history",
+    "museums",
+    "research",
+    "science",
+    "sources",
+    "travel",
+}
+EMBODIED_DIARY_PATTERNS = [
+    r"\bi visited\b",
+    r"\bi went\b",
+    r"\bi traveled\b",
+    r"\bi travelled\b",
+    r"\bi attended\b",
+    r"\bi saw\b",
+]
+
 
 class AgentRunner:
     def __init__(self) -> None:
@@ -72,6 +92,7 @@ class AgentRunner:
             search_query_prompt(profile.model_dump()),
             temperature=float(self.config.get("temperature", 0.7)),
             top_p=float(self.config.get("top_p", 0.9)),
+            max_tokens=120,
         )
         if "error" in plan:
             errors.append({"stage": "search_query_planning", **plan})
@@ -107,6 +128,7 @@ class AgentRunner:
                 source_summary_prompt(profile.model_dump(), result.model_dump(), text or result.snippet),
                 temperature=0.2,
                 top_p=0.9,
+                max_tokens=240,
             )
             if "error" in payload:
                 valid_source_summaries = False
@@ -117,6 +139,7 @@ class AgentRunner:
                     title=result.title,
                     url=result.url,
                     backend=result.backend,
+                    source_type=self._source_type(result.url),
                     summary=str(payload.get("summary", ""))[:1000],
                     useful_facts=clamp_list(payload.get("useful_facts"), 5),
                     uncertainty_notes=clamp_list(payload.get("uncertainty_notes"), 5),
@@ -125,15 +148,22 @@ class AgentRunner:
             )
 
         self._progress("asking model to write diary entry")
-        diary_payload = self.llm.chat(diary_prompt(profile.model_dump(), [s.model_dump() for s in summaries]))
+        diary_payload = self.llm.chat(
+            diary_prompt(profile.model_dump(), [s.model_dump() for s in summaries]),
+            max_tokens=220,
+        )
         if "error" in diary_payload:
             errors.append({"stage": "diary", **diary_payload})
             diary_payload = {"diary_summary": "Diary unavailable due to model output error."}
         diary = DiaryEntry(agent_id=agent_id, episode_id=episode_id, **self._filter_fields(diary_payload, DiaryEntry))
+        diary_artifacts = self._diary_artifacts(diary)
+        if diary_artifacts.get("embodied_language_detected"):
+            errors.append({"stage": "diary_artifact", **diary_artifacts})
 
         self._progress("asking model to reflect on behaviour")
         reflection_payload = self.llm.chat(
-            reflection_prompt(profile.model_dump(), diary.model_dump(), [s.model_dump() for s in summaries])
+            reflection_prompt(profile.model_dump(), diary.model_dump(), [s.model_dump() for s in summaries]),
+            max_tokens=220,
         )
         if "error" in reflection_payload:
             errors.append({"stage": "reflection", **reflection_payload})
@@ -145,7 +175,10 @@ class AgentRunner:
         )
 
         self._progress("asking model for conservative profile update")
-        update_payload = self.llm.chat(profile_update_prompt(profile.model_dump(), diary.model_dump(), reflection.model_dump()))
+        update_payload = self.llm.chat(
+            profile_update_prompt(profile.model_dump(), diary.model_dump(), reflection.model_dump()),
+            max_tokens=220,
+        )
         valid_profile_update = "error" not in update_payload
         if "error" in update_payload:
             errors.append({"stage": "profile_update", **update_payload})
@@ -156,7 +189,7 @@ class AgentRunner:
             **self._filter_fields(update_payload, ProfileUpdateProposal),
         )
 
-        self._progress("applying recurrence-gated profile update")
+        self._progress("applying cautious profile update")
         new_profile, applied = self._apply_profile_update(
             profile,
             proposal,
@@ -167,6 +200,8 @@ class AgentRunner:
         )
         if applied.get("rejected_update"):
             errors.append({"stage": "profile_update_rejected", **applied["rejected_update"]})
+        for rejected_interest in applied.get("rejected_candidate_interests", []):
+            errors.append({"stage": "profile_interest_rejected", **rejected_interest})
         self.storage.save_profile(new_profile)
         for event in self.llm.restart_events[restart_start:]:
             errors.append({"stage": "llm_restart", **event})
@@ -210,6 +245,7 @@ class AgentRunner:
             source_selection_prompt(profile.model_dump(), [result.model_dump() for result in results]),
             temperature=0.2,
             top_p=0.9,
+            max_tokens=160,
         )
         if "error" in payload:
             errors.append({"stage": "source_selection", **payload})
@@ -232,101 +268,14 @@ class AgentRunner:
                 }
             )
             selected_index = 0
-        original_index = selected_index
-        selected_index, diversity = self._diversified_source_index(profile, results, selected_index)
-        if selected_index != original_index:
-            errors.append(
-                {
-                    "stage": "source_selection_diversity",
-                    "original_index": original_index,
-                    "selected_index": selected_index,
-                    **diversity,
-                }
-            )
-            payload["model_selected_index"] = original_index
-            payload["model_selected_url"] = results[original_index].url
-            payload["selection_reason"] = (
-                f"{payload.get('selection_reason', '')} "
-                f"Deterministic diversity override selected a less repeated source."
-            ).strip()
         payload["selected_index"] = selected_index
         payload["selected_url"] = results[selected_index].url
-        payload["diversity"] = diversity
+        payload["selected_source_type"] = self._source_type(results[selected_index].url)
         self._last_source_selection = payload
         self._progress(
             f"favourite source {selected_index + 1}/{len(results)}: {results[selected_index].title[:80]}"
         )
         return [results[selected_index]]
-
-    def _diversified_source_index(
-        self, profile: AgentProfile, results: list[Any], selected_index: int
-    ) -> tuple[int, dict[str, Any]]:
-        window = int(self.config.get("source_diversity_recent_window", 8))
-        domain_limit = int(self.config.get("source_diversity_max_recent_domain_uses", 2))
-        url_limit = int(self.config.get("source_diversity_max_recent_url_uses", 1))
-        recent_domains, recent_urls = self._recent_source_counts(profile, window)
-        selected = results[selected_index]
-        selected_domain = self._domain(selected.url)
-        selected_url = self._url_key(selected.url)
-        selected_repeated = (
-            (selected_url and recent_urls[selected_url] >= url_limit)
-            or (selected_domain and recent_domains[selected_domain] >= domain_limit)
-        )
-        ranked = sorted(
-            range(len(results)),
-            key=lambda index: self._source_diversity_rank(
-                results[index],
-                index,
-                recent_domains,
-                recent_urls,
-                domain_limit,
-                url_limit,
-            ),
-        )
-        best_index = ranked[0] if ranked else selected_index
-        best_rank = self._source_diversity_rank(
-            results[best_index], best_index, recent_domains, recent_urls, domain_limit, url_limit
-        )
-        selected_rank = self._source_diversity_rank(
-            selected, selected_index, recent_domains, recent_urls, domain_limit, url_limit
-        )
-        should_override = selected_repeated and best_index != selected_index and best_rank < selected_rank
-        chosen_index = best_index if should_override else selected_index
-        chosen = results[chosen_index]
-        return chosen_index, {
-            "recent_window": window,
-            "domain_limit": domain_limit,
-            "url_limit": url_limit,
-            "selected_was_repeated": bool(selected_repeated),
-            "chosen_domain": self._domain(chosen.url),
-            "chosen_url_recent_count": recent_urls[self._url_key(chosen.url)],
-            "chosen_domain_recent_count": recent_domains[self._domain(chosen.url)],
-        }
-
-    def _source_diversity_rank(
-        self,
-        result: Any,
-        index: int,
-        recent_domains: Counter[str],
-        recent_urls: Counter[str],
-        domain_limit: int,
-        url_limit: int,
-    ) -> tuple[int, int, int, int, int]:
-        domain = self._domain(result.url)
-        url = self._url_key(result.url)
-        url_count = recent_urls[url]
-        domain_count = recent_domains[domain]
-        over_limit = int((url and url_count >= url_limit) or (domain and domain_count >= domain_limit))
-        missing_url = int(not url)
-        return (over_limit, domain_count, url_count, missing_url, index)
-
-    def _recent_source_counts(self, profile: AgentProfile, window: int) -> tuple[Counter[str], Counter[str]]:
-        domains: Counter[str] = Counter()
-        urls: Counter[str] = Counter()
-        for observation in profile.observations[-window:]:
-            domains.update(domain for domain in observation.get("source_domains", []) if domain)
-            urls.update(url for url in observation.get("source_urls", []) if url)
-        return domains, urls
 
     def _filter_fields(self, payload: dict[str, Any], model: Any) -> dict[str, Any]:
         reserved = {"agent_id", "episode_id"}
@@ -354,12 +303,14 @@ class AgentRunner:
         domains = sorted({self._domain(source.url) for source in selected_sources if self._domain(source.url)})
         first_result_topic = selected_sources[0].title if selected_sources else ""
         safe_candidates = []
+        rejected_candidates = []
         if episode_json_valid:
-            safe_candidates = [
-                self._safe_interest(item)
-                for item in proposal.candidate_interests
-                if self._safe_interest(item)
-            ]
+            for item in proposal.candidate_interests:
+                safe_interest, rejection_reason = self._safe_interest(item)
+                if safe_interest:
+                    safe_candidates.append(safe_interest)
+                elif rejection_reason:
+                    rejected_candidates.append({"interest": str(item), "reason": rejection_reason})
         observation = {
             "episode_id": episode_id,
             "timestamp": now,
@@ -379,8 +330,14 @@ class AgentRunner:
         stable = clamp_list(seed_interests + stable_from_observations, 8)
         recent_queries = clamp_list((profile.recent_queries + [search_query])[-12:], 12)
         memory = profile.recent_memory_summary
+        single_source_facts = []
         if episode_json_valid and proposal.recent_memory_summary:
-            memory = self._safe_text(proposal.recent_memory_summary, memory, limit=800)
+            memory, single_source_facts = self._clean_memory_summary(
+                proposal.recent_memory_summary,
+                memory,
+                domains,
+                [source.url for source in selected_sources],
+            )
         applied: dict[str, Any] = {
             "applied": True,
             "from_version": profile.version,
@@ -393,6 +350,10 @@ class AgentRunner:
                 item for item in stable_from_observations if item not in profile.stable_interests
             ],
         }
+        if rejected_candidates:
+            applied["rejected_candidate_interests"] = rejected_candidates
+        if single_source_facts:
+            applied["single_source_facts"] = single_source_facts
         if rejected:
             applied["rejected_update"] = rejected
         now = utc_now()
@@ -417,11 +378,14 @@ class AgentRunner:
 
     def _derive_interest_state(self, observations: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
         stats: dict[str, dict[str, Any]] = {}
-        rejected: dict[str, Any] = {"reason": "recurrence_gate_not_met", "items": []}
+        rejected: dict[str, Any] = {"reason": "not_enough_repeated_evidence", "items": []}
         valid_observations = [item for item in observations if item.get("json_valid")]
         for observation in valid_observations:
             query = str(observation.get("query", ""))
             for interest in observation.get("candidate_interests", []):
+                interest, _ = self._safe_interest(interest)
+                if not interest:
+                    continue
                 key = normalise_title(interest)
                 if not key:
                     continue
@@ -472,16 +436,101 @@ class AgentRunner:
             rejected = {}
         return tentative[:20], stable, rejected
 
-    def _safe_interest(self, value: str) -> str:
+    def _safe_interest(self, value: str) -> tuple[str, str]:
         text = str(value or "").strip()
         lowered = text.lower()
-        if not text or any(term in lowered for term in BLOCKED_PROFILE_TERMS):
-            return ""
+        words = [word for word in re.split(r"\s+", text) if word]
+        if not text:
+            return "", "empty"
+        if lowered in FILLER_INTERESTS or set(lowered) <= {".", "…"}:
+            return "", "filler"
+        if lowered in VAGUE_INTERESTS:
+            return "", "too_vague"
+        if any(term in lowered for term in BLOCKED_PROFILE_TERMS):
+            return "", "blocked_profile_term"
         if text.startswith(("{", "[")) or "'interest':" in lowered or '"interest":' in lowered:
-            return ""
+            return "", "malformed_json_like_text"
         if any(term in lowered for term in STRICT_RULE_TERMS):
-            return ""
-        return text[:160]
+            return "", "strict_rule_language"
+        if text.count(",") >= 2 or text.count(";") >= 2:
+            return "", "packed_interest_bundle"
+        if len(words) > 10:
+            return "", "too_long"
+        return text[:160], ""
+
+    def _clean_memory_summary(
+        self,
+        value: str,
+        fallback: str,
+        domains: list[str],
+        urls: list[str],
+    ) -> tuple[str, list[dict[str, Any]]]:
+        text = self._safe_text(value, fallback, limit=800)
+        if not text:
+            return fallback, []
+        facts = []
+        clean_sentences = []
+        for sentence in self._sentences(text):
+            if self._number_heavy(sentence) and len(domains) <= 1:
+                facts.append(
+                    {
+                        "fact": sentence[:240],
+                        "source_domains": domains,
+                        "source_urls": [self._url_key(url) for url in urls if self._url_key(url)],
+                        "status": "single_source",
+                    }
+                )
+                continue
+            clean_sentences.append(sentence)
+        cleaned = " ".join(clean_sentences).strip()
+        return (cleaned[:800] if cleaned else fallback), facts
+
+    def _sentences(self, text: str) -> list[str]:
+        return [sentence.strip() for sentence in re.split(r"(?<=[.!?])\s+", text) if sentence.strip()]
+
+    def _number_heavy(self, text: str) -> bool:
+        return bool(re.search(r"\d{1,3}(?:,\d{3})+|\b\d{4,}\b", text))
+
+    def _diary_artifacts(self, diary: DiaryEntry) -> dict[str, Any]:
+        text = " ".join(
+            [
+                diary.diary_summary,
+                diary.what_caught_attention,
+                diary.what_was_uncertain,
+                diary.possible_next_interest,
+            ]
+        )
+        matches = []
+        for pattern in EMBODIED_DIARY_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                matches.append(pattern.replace(r"\b", "").replace("\\", ""))
+        return {
+            "embodied_language_detected": bool(matches),
+            "patterns": matches,
+        }
+
+    def _source_type(self, url: str) -> str:
+        domain = self._domain(url)
+        path = urlparse(url or "").path.lower()
+        if not domain:
+            return "unknown"
+        if domain in {"facebook.com", "reddit.com", "x.com", "twitter.com", "instagram.com", "youtube.com"}:
+            return "social"
+        if any(part in domain for part in ["jstor.org", "springer.com", "sciencedirect.com", "ncbi.nlm.nih.gov"]):
+            return "academic"
+        if domain.endswith(".edu") or ".edu." in domain or domain.endswith(".ac.uk"):
+            return "academic"
+        if domain.endswith(".gov") or ".gov." in domain or domain.endswith(".int"):
+            return "official"
+        if any(part in domain for part in ["museum", "unesco.org", "kew.org", "gbif.org", "bgbm.org", "rbge.org.uk"]):
+            return "official"
+        if any(part in domain for part in ["wikipedia.org", "britannica.com", "ebsco.com"]):
+            return "reference"
+        if any(part in domain for part in ["news", "magazine", "times", "guardian", "bbc.", "vulture.com"]):
+            return "news_or_magazine"
+        if any(part in domain for part in ["amazon.", "shop", "store"]) or "/product" in path:
+            return "commercial"
+        return "unknown"
 
     def _domain(self, url: str) -> str:
         host = urlparse(url or "").netloc.lower()

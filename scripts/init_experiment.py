@@ -9,8 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.config import data_path, load_agents_config
-from src.llm_client import LLMClient
-from src.profile_seed import wiki_seeded_initial_profile
+from src.profile_seed import deterministic_public_world_fallback_profile
 from src.schemas import AgentProfile
 from src.storage import Storage
 from src.utils import utc_now
@@ -25,7 +24,6 @@ def main() -> None:
         shutil.rmtree(data_path())
 
     storage = Storage()
-    llm = LLMClient()
     now = utc_now()
     agents = load_agents_config().get("agents", [])
     for item in agents:
@@ -36,13 +34,12 @@ def main() -> None:
             continue
         name = item.get("name", agent_id)
         seed = str(item.get("profile_seed") or f"{agent_id}:llama-herd:2026-05-25")
-        seeded = wiki_seeded_initial_profile(agent_id, name, seed, llm)
+        seeded = deterministic_public_world_fallback_profile(agent_id, name, seed)
         initial = seeded["initial_profile"]
         profile = AgentProfile(
             agent_id=agent_id,
             name=name,
             profile_seed=str(seeded["profile_seed"]),
-            wiki_seed_pages=list(seeded.get("wiki_seed_pages", [])),
             seed_generation_source=str(seeded.get("seed_generation_source", "")),
             seed_generation_error=str(seeded.get("seed_generation_error", "")),
             initial_profile=initial,
@@ -58,7 +55,7 @@ def main() -> None:
         )
         storage.save_profile(profile)
         print(f"Created profile: {agent_id} seed={seed} source={seeded.get('seed_generation_source', 'unknown')}")
-    print(f"SQLite database: {storage.db_path}")
+    print(f"Profiles directory: {data_path('profiles')}")
 
 
 if __name__ == "__main__":

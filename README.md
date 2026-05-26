@@ -10,7 +10,7 @@ The project assumes llama.cpp server and SearXNG are already running locally. It
 
 - llama.cpp OpenAI-compatible API: `http://127.0.0.1:10000/v1`
 - SearXNG search endpoint: `http://127.0.0.1:8888/search`
-- Initial profile seeding uses deterministic Wikipedia page summaries plus the local model.
+- Initial profile seeding defaults to a broad deterministic public-world profile.
 - Search episodes rely on SearXNG results only by default.
 - One local small instruct model served through llama.cpp
 - Reasoning treated as off; prompts require short structured JSON and never request chain-of-thought
@@ -49,7 +49,7 @@ Use `--reset` to clear experiment data and recreate the blank profile:
 python scripts/init_experiment.py --reset
 ```
 
-Initialization stores the profile seed, selected Wikipedia pages, and generated initial profile in `data/profiles/<agent_id>.json`. The same seed selects the same Wikipedia pages.
+Initialization stores the profile seed and generated initial profile in `data/profiles/<agent_id>.json`. The same seed selects the same starting interests.
 
 ## Run
 
@@ -80,6 +80,12 @@ python scripts/run_batch.py --all-agents
 
 With the default config this runs 5 agents for 100 episodes each.
 
+Resume a partially completed configured study:
+
+```bash
+python scripts/run_batch.py --all-agents --resume
+```
+
 Write a readable latest-status file:
 
 ```bash
@@ -91,6 +97,29 @@ Open:
 ```text
 data/logs/latest_status.md
 ```
+
+Write research metrics for a run:
+
+```bash
+python scripts/write_research_metrics.py
+```
+
+```text
+data/metrics/research_metrics.md
+data/metrics/research_metrics.json
+```
+
+Run a short model comparison before the full study:
+
+```bash
+python scripts/model_comparison.py \
+  --models qwen2.5-1.5b-q4 llama-3.2-1b-q4 \
+  --agents 3 \
+  --episodes 10
+```
+
+This temporarily moves the current `data/` directory aside, runs isolated mini-studies per model,
+restores the original `data/`, and writes `data/model_comparison/summary.md`.
 
 Run text mode:
 
@@ -123,9 +152,8 @@ python -m llama_herd.metrics \
 - Source text and snippets: `data/sources/`
 - Raw search cache: `data/sources/search_cache/`
 - Offline metrics: `data/metrics/`
-- SQLite database: `data/db/world_model_lab.sqlite`
 
-Everything written to SQLite should also be recoverable from JSONL. Each episode stores raw model request/response records plus prompt metadata, including prompt version and prompt file hash, so prompt changes can be monitored across runs.
+Each episode stores raw model request/response records plus prompt metadata, including prompt version and prompt file hash, so prompt changes can be monitored across runs.
 
 ## Failure Behaviour
 

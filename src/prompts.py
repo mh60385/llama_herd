@@ -101,8 +101,10 @@ def diary_prompt(profile: dict[str, Any], summaries: list[dict[str, Any]]) -> li
         {
             "role": "user",
             "content": (
-                "Write a concise first-person diary entry from the source summaries. Use 'I' language, for example "
-                "'I searched...', 'I noticed...', and 'I was uncertain...'. Do not invent facts.\n"
+                "Write a concise first-person diary entry from the source summaries. Use honest reading-based "
+                "I-language, for example 'I read...', 'I noticed...', 'The source says...', and "
+                "'I was unsure...'. Do not claim real-world experience such as visiting, traveling, attending, "
+                "or seeing something in person. Do not invent facts.\n"
                 f"Prompt conditioning profile: {_json(prompt_conditioning_profile(profile))}\n"
                 f"Source summaries: {_json(summaries)}\n"
                 'Return JSON: {"diary_summary":"...","what_caught_attention":"...",'
@@ -137,7 +139,7 @@ def profile_update_prompt(profile: dict[str, Any], diary: dict[str, Any], reflec
             "content": (
                 "Extract weak episode observations only. Do not update identity, stable interests, preferred sources, "
                 "search style, uncertainty style, or self-rules. One source or one episode can only create observations "
-                "and candidate interests. Stable promotion is handled later by deterministic recurrence rules.\n"
+                "and candidate interests. Lasting profile changes are decided later from repeated evidence.\n"
                 f"Prompt conditioning profile before episode: {_json(prompt_conditioning_profile(profile, include_tentative=False))}\n"
                 f"Diary: {_json(diary)}\nReflection: {_json(reflection)}\n"
                 'Return JSON: {"observations":["..."],"candidate_interests":["..."],'
