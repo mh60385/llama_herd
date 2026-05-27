@@ -109,7 +109,16 @@ data/metrics/research_metrics.md
 data/metrics/research_metrics.json
 ```
 
-Run a short model comparison before the full study:
+Screen candidate models before the full study:
+
+```bash
+python scripts/model_screen.py \
+  --models qwen2.5-1.5b-q4 llama-3.2-1b-q4
+```
+
+This writes `data/model_screen/summary.md` with a shortlist based on load, JSON, seed, topic, and prompt behavior.
+
+Run a short model comparison for shortlisted models:
 
 ```bash
 python scripts/model_comparison.py \

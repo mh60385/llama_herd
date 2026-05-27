@@ -247,8 +247,8 @@ data/logs/episodes.jsonl
 data/logs/agent_01.jsonl
 data/logs/system_monitor.jsonl
 data/logs/model_smoke_results.json
-data/logs/seed_smoke_5_agents.jsonl
-data/logs/loose_seed_topic_smoke.jsonl
+data/model_screen/seed_search.jsonl
+data/model_screen/loose_topics.jsonl
 data/logs/wiki_seed_smoke.jsonl
 ```
 
