@@ -117,6 +117,8 @@ python scripts/model_screen.py \
 ```
 
 This writes `data/model_screen/summary.md` with a shortlist based on load, JSON, seed, topic, and prompt behavior.
+The model-screening rationale and paper-oriented summary are documented in
+`PIPELINE_SUMMARY.md`.
 
 Run a short model comparison for shortlisted models:
 
@@ -129,12 +131,6 @@ python scripts/model_comparison.py \
 
 This temporarily moves the current `data/` directory aside, runs isolated mini-studies per model,
 restores the original `data/`, and writes `data/model_comparison/summary.md`.
-
-Run text mode:
-
-```bash
-python scripts/run_text_mode.py
-```
 
 Analyze drift:
 

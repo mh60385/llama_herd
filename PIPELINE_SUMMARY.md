@@ -100,7 +100,7 @@ llm_min_restart_gap_episodes: 3
 
 If RAM is critically low, the runner restarts `llama-server`. It no longer restarts on every mild warning, because constant restarts made the Jetson run noisier without improving the experiment. If swap gets close to exhaustion, the run stops instead of thrashing. If temperature is too high, it pauses or stops safely.
 
-## Model Smoke Results
+## Model Screening Results
 
 Models were downloaded into:
 
@@ -108,25 +108,58 @@ Models were downloaded into:
 /home/deadbod/jetson-admin/local-llm/models
 ```
 
-Prompt-adherence smoke used:
+Candidate local models were screened before longitudinal runs with a fixed
+model-prompt behaviour battery. This is not a general benchmark of model
+intelligence or search quality. It tests suitability for this pipeline:
+structured JSON compliance, seed-conditioned search-query behaviour,
+resistance to tentative-interest leakage and recent-query echoing, and basic
+loose-topic generation.
+
+Screening used:
 
 - context: `2048`
-- max output: `192`
-- strict JSON prompts
-- search-query prompt
-- source-summary prompt
-- observation-extraction prompt
+- GPU layers: `99`
+- max output: `180`
+- strict JSON, search-query, source-selection, source-summary, diary,
+  reflection, and observation-extraction prompts
+- 5 seeded search-query trials
+- 5 loose public-web topic trials
 
 Results:
 
 ```text
-qwen2.5-0.5b-q4       1/4   ~764 MiB   too weak
-llama-3.2-1b-q4       3/4   ~1.89 GiB  almost usable
-gemma-3-1b-q4         4/4   ~2.03 GiB  best small alternate
-qwen2.5-1.5b-q4       4/4   ~2.29 GiB  current baseline
-granite-3.3-2b-q4     4/4   ~2.39 GiB  good comparison model
-llama-3.2-3b-iq4-xs   4/4   ~3.19 GiB  heavier quality comparison
-ministral-3b-q4       0/4   ~2.58 GiB  not suitable
+Model                 Pass  Prompts  Seed JSON  Seed Follow  Leaks  Echoes  Topic JSON
+llama-3.2-1b-q4       no    6/7      5/5        3/5          0      0       5/5
+gemma-3-1b-q4         no    7/7      5/5        2/5          0      0       5/5
+qwen2.5-1.5b-q4       yes   7/7      5/5        5/5          0      0       5/5
+llama-3.2-3b-iq4-xs   yes   7/7      5/5        4/5          0      0       5/5
+granite-3.3-2b-q4     yes   7/7      5/5        5/5          0      0       5/5
+ministral-3b-q4       no    0/7      0/5        0/5          0      0       0/5
+```
+
+Topic-development observations:
+
+- `qwen2.5-1.5b-q4`: broad usable topics, but some repetition
+  (origami, bicycle history, quantum topics, Amazon rainforest) and one
+  awkward repeated phrase.
+- `granite-3.3-2b-q4`: clean structured output and strong seed-following, but
+  narrow topic development with repeated bundles such as traffic lights, ball
+  of twine, Eiffel Tower, Halloween, and the Voynich Manuscript.
+- `llama-3.2-3b-iq4-xs`: passed structural checks, but loose-topic output was
+  closer to repeated trivia facts than developing research topics.
+- `gemma-3-1b-q4`: produced varied topics, but weak seed-following made it
+  unsuitable as the main model-prompt pair.
+- `llama-3.2-1b-q4`: repeated the same topic set across seeds and missed one
+  prompt check.
+- `ministral-3b-q4`: rejected because structured JSON and topic generation
+  failed across the screen.
+
+Shortlist:
+
+```text
+qwen2.5-1.5b-q4
+granite-3.3-2b-q4
+llama-3.2-3b-iq4-xs
 ```
 
 Current default model:
@@ -134,6 +167,10 @@ Current default model:
 ```text
 bartowski/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M
 ```
+
+For paper language, describe this as selection of the most suitable
+model-prompt pair for the experimental pipeline, not as selection of the
+"best model" in general.
 
 ## Seeding Findings
 

@@ -8,6 +8,8 @@ data/profiles/*.json
 data/logs/*.jsonl
 data/logs/*.json
 data/metrics/
+data/model_comparison/
+data/model_screen/
 data/wiki_seed_cache/
 data/sources/*.txt
 data/sources/search_cache/*.json
@@ -17,4 +19,3 @@ data/db/*.sqlite
 data.backup-*/
 data.precomparison-*/
 .model_comparison_work-*/
-
