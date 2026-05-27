@@ -6,6 +6,9 @@ This is a terminal-only experiment runner, not a search-quality benchmark. It st
 
 The project assumes llama.cpp server and SearXNG are already running locally. It can optionally restart llama.cpp after transient failures if restart commands are configured in `.env`.
 
+For research framing, model choice, seeding, production-run guidance, and paper
+language, see `RESEARCH_README.md`.
+
 ## Local Assumptions
 
 - llama.cpp OpenAI-compatible API: `http://127.0.0.1:10000/v1`

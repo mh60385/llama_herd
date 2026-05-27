@@ -219,37 +219,22 @@ Telugu cinema
 Hollywood films
 ```
 
-## Recommended Seeding Direction
+## Current Seeding Direction
 
-Use Wikipedia-seeded profiles. This is now the default initialization path:
-
-```text
-seed -> deterministic Wikipedia page summaries -> model abstracts broad interests -> validate -> store source pages
-```
+Production initialization currently uses deterministic public-world profile
+seeding. Each configured agent has a fixed `profile_seed`; initialization
+hashes that seed and samples 3 broad starting interests from a public-world
+interest pool. Those interests become the initial stable interests.
 
 Current implementation:
 
-1. Select 3 deterministic Wikipedia article summaries from the seed.
-2. Reject bad pages:
-   - disambiguation,
-   - list/index pages,
-   - very short extracts,
-   - surname/given-name pages.
-3. Ask the LLM to generate an initial profile from the pages.
-4. Validate:
-   - valid JSON,
-   - 3 interests,
-   - interests are not exact article titles,
-   - no biography/identity claims,
-   - no strict self-rules,
-   - retry once if invalid.
-5. Store:
-   - `profile_seed`,
-   - `wiki_seed_pages`,
-   - generated `initial_profile`,
-   - raw seed-generation response.
+```text
+profile_seed -> SHA-256 hash -> deterministic sample of 3 public-world interests -> initial profile
+```
 
-This keeps initial themes model-generated while avoiding the model’s default AI/tech attractor.
+This keeps agent starts reproducible and avoids using live search or model
+generation before the longitudinal run begins. New interests are added only
+through later episode evidence and recurrence checks.
 
 ## Offline Metrics
 
