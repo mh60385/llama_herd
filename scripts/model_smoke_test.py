@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.config import data_path
 from src.llm_client import LLMClient
-from src.profile_seed import model_seeded_initial_profile
+from src.profile_seed import deterministic_seeded_initial_profile
 from src.prompts import (
     diary_prompt,
     profile_update_prompt,
@@ -173,9 +173,9 @@ def start_container(model_path: str, ctx: int, ngl: int) -> subprocess.Completed
 
 def run_seed_smoke() -> dict[str, Any]:
     client = LLMClient()
-    seed_a1 = model_seeded_initial_profile("seed_agent", "Seed Agent", "seed-agent:test-a", client)
-    seed_a2 = model_seeded_initial_profile("seed_agent", "Seed Agent", "seed-agent:test-a", client)
-    seed_b = model_seeded_initial_profile("seed_agent", "Seed Agent", "seed-agent:test-b", client)
+    seed_a1 = deterministic_seeded_initial_profile("seed_agent", "Seed Agent", "seed-agent:test-a")
+    seed_a2 = deterministic_seeded_initial_profile("seed_agent", "Seed Agent", "seed-agent:test-a")
+    seed_b = deterministic_seeded_initial_profile("seed_agent", "Seed Agent", "seed-agent:test-b")
     initial_a = seed_a1["initial_profile"]
     initial_b = seed_b["initial_profile"]
     return {

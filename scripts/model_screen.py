@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts import model_smoke_test
 from src.config import data_path
 from src.llm_client import LLMClient
-from src.profile_seed import model_seeded_initial_profile
+from src.profile_seed import deterministic_seeded_initial_profile
 from src.prompts import prompt_metadata, search_query_prompt
 from src.utils import append_jsonl, normalise_title, utc_now, write_json
 
@@ -133,7 +133,7 @@ def run_seed_search_screen(client: LLMClient, out_dir: Path) -> list[dict[str, A
     for agent_id in AGENT_IDS:
         name = agent_id.replace("_", " ").title()
         seed = f"{agent_id}:{SEED_SUFFIX}"
-        seeded = model_seeded_initial_profile(agent_id, name, seed, client)
+        seeded = deterministic_seeded_initial_profile(agent_id, name, seed)
         initial_profile = seeded["initial_profile"]
         stable_interests = list(initial_profile["current_interests"])
         profile = {

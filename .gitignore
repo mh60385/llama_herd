@@ -15,6 +15,12 @@ data/sources/*.txt
 data/sources/search_cache/*.json
 data/db/*.sqlite
 
+# Model screening and comparison outputs
+data/model_screen/*.jsonl
+data/model_screen/*.md
+data/model_comparison/*.jsonl
+data/model_comparison/*.md
+
 # transient experiment snapshots/workspaces
 data.backup-*/
 data.precomparison-*/

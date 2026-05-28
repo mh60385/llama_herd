@@ -151,13 +151,18 @@ def profile_update_prompt(profile: dict[str, Any], diary: dict[str, Any], reflec
     ]
 
 
-def prompt_conditioning_profile(
+def get_conditioned_profile(
     profile: dict[str, Any],
     include_tentative: bool = True,
     include_recent_queries: bool = True,
 ) -> dict[str, Any]:
+    """Get profile dict for conditioning prompts. 
+    
+    Use include_tentative=False, include_recent_queries=False for search_query_prompt
+    to prevent prompt leakage.
+    """
     initial = profile.get("initial_profile") or {}
-    conditioned = {
+    base = {
         "agent_id": profile.get("agent_id"),
         "name": profile.get("name"),
         "profile_seed": profile.get("profile_seed", ""),
@@ -172,7 +177,16 @@ def prompt_conditioning_profile(
         "recent_memory_summary": profile.get("recent_memory_summary", ""),
     }
     if include_recent_queries:
-        conditioned["recent_queries"] = profile.get("recent_queries", [])[-8:]
+        base["recent_queries"] = profile.get("recent_queries", [])[-8:]
     if include_tentative:
-        conditioned["tentative_interests_low_confidence_non_identity"] = profile.get("tentative_interests", [])[:8]
-    return conditioned
+        base["tentative_interests_low_confidence_non_identity"] = profile.get("tentative_interests", [])[:8]
+    return base
+
+
+# Backwards compatibility alias
+def prompt_conditioning_profile(
+    profile: dict[str, Any],
+    include_tentative: bool = True,
+    include_recent_queries: bool = True,
+) -> dict[str, Any]:
+    return get_conditioned_profile(profile, include_tentative, include_recent_queries)

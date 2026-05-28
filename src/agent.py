@@ -3,9 +3,8 @@ from __future__ import annotations
 import re
 import uuid
 from typing import Any
-from urllib.parse import urlparse
 
-from .config import Settings, load_experiment_config
+from .config import ROOT, load_experiment_config
 from .llm_client import LLMClient
 from .prompts import (
     diary_prompt,
@@ -20,35 +19,20 @@ from .schemas import AgentProfile, DiaryEntry, EpisodeLog, ProfileUpdateProposal
 from .search import SearchManager
 from .source_reader import SourceReader
 from .storage import Storage
-from .utils import clamp_list, normalise_title, utc_now
-
-
-BLOCKED_PROFILE_TERMS = {
-    "i was born",
-    "my childhood",
-    "my family",
-    "my race",
-    "my religion",
-    "my gender",
-    "my nationality",
-    "my disability",
-    "my diagnosis",
-    "my political party",
-}
-
-STRICT_RULE_TERMS = {"always", "never", "avoid", "must", "only", "forbidden", "require", "refuse"}
-
-FILLER_INTERESTS = {"...", "…", "n/a", "none", "unknown", "misc", "miscellaneous"}
-VAGUE_INTERESTS = {
-    "artifacts",
-    "culture",
-    "history",
-    "museums",
-    "research",
-    "science",
-    "sources",
-    "travel",
-}
+from .utils import (
+    BLOCKED_PROFILE_TERMS,
+    FILLER_INTERESTS,
+    STRICT_RULE_TERMS,
+    VAGUE_INTERESTS,
+    classify_source_type,
+    clamp_list,
+    domain_from_url,
+    normalise_title,
+    sanitize_text,
+    text_overlap,
+    url_key,
+    utc_now,
+)
 EMBODIED_DIARY_PATTERNS = [
     r"\bi visited\b",
     r"\bi went\b",
@@ -61,11 +45,11 @@ EMBODIED_DIARY_PATTERNS = [
 
 class AgentRunner:
     def __init__(self) -> None:
-        self.settings = Settings()
         self.config = load_experiment_config()
         self.storage = Storage()
-        self.llm = LLMClient(self.settings)
-        self.search = SearchManager(self.settings, int(self.config.get("max_search_results", 5)))
+        self.llm = LLMClient()
+        from .config import get_search_config
+        self.search = SearchManager(get_search_config(), int(self.config.get("max_search_results", 5)))
         self.reader = SourceReader(int(self.config.get("max_source_chars", 4000)))
 
     def _progress(self, message: str) -> None:
@@ -282,11 +266,7 @@ class AgentRunner:
         return {key: value for key, value in payload.items() if key in model.model_fields and key not in reserved}
 
     def _safe_text(self, value: str, fallback: str, limit: int = 240) -> str:
-        text = str(value or "").strip()
-        lowered = text.lower()
-        if any(term in lowered for term in BLOCKED_PROFILE_TERMS):
-            return fallback
-        return text[:limit] or fallback
+        return sanitize_text(value, fallback, limit)
 
     def _apply_profile_update(
         self,
@@ -446,16 +426,17 @@ class AgentRunner:
             return "", "filler"
         if lowered in VAGUE_INTERESTS:
             return "", "too_vague"
-        if any(term in lowered for term in BLOCKED_PROFILE_TERMS):
-            return "", "blocked_profile_term"
         if text.startswith(("{", "[")) or "'interest':" in lowered or '"interest":' in lowered:
             return "", "malformed_json_like_text"
-        if any(term in lowered for term in STRICT_RULE_TERMS):
-            return "", "strict_rule_language"
         if text.count(",") >= 2 or text.count(";") >= 2:
             return "", "packed_interest_bundle"
         if len(words) > 10:
             return "", "too_long"
+        # Check blocked and strict terms
+        if any(term in lowered for term in BLOCKED_PROFILE_TERMS):
+            return "", "blocked_profile_term"
+        if any(term in lowered for term in STRICT_RULE_TERMS):
+            return "", "strict_rule_language"
         return text[:160], ""
 
     def _clean_memory_summary(
@@ -510,41 +491,13 @@ class AgentRunner:
         }
 
     def _source_type(self, url: str) -> str:
-        domain = self._domain(url)
-        path = urlparse(url or "").path.lower()
-        if not domain:
-            return "unknown"
-        if domain in {"facebook.com", "reddit.com", "x.com", "twitter.com", "instagram.com", "youtube.com"}:
-            return "social"
-        if any(part in domain for part in ["jstor.org", "springer.com", "sciencedirect.com", "ncbi.nlm.nih.gov"]):
-            return "academic"
-        if domain.endswith(".edu") or ".edu." in domain or domain.endswith(".ac.uk"):
-            return "academic"
-        if domain.endswith(".gov") or ".gov." in domain or domain.endswith(".int"):
-            return "official"
-        if any(part in domain for part in ["museum", "unesco.org", "kew.org", "gbif.org", "bgbm.org", "rbge.org.uk"]):
-            return "official"
-        if any(part in domain for part in ["wikipedia.org", "britannica.com", "ebsco.com"]):
-            return "reference"
-        if any(part in domain for part in ["news", "magazine", "times", "guardian", "bbc.", "vulture.com"]):
-            return "news_or_magazine"
-        if any(part in domain for part in ["amazon.", "shop", "store"]) or "/product" in path:
-            return "commercial"
-        return "unknown"
+        return classify_source_type(url)
 
     def _domain(self, url: str) -> str:
-        host = urlparse(url or "").netloc.lower()
-        if host.startswith("www."):
-            host = host[4:]
-        return host
+        return domain_from_url(url)
 
     def _url_key(self, url: str) -> str:
-        parsed = urlparse(url or "")
-        host = parsed.netloc.lower()
-        if host.startswith("www."):
-            host = host[4:]
-        path = parsed.path.rstrip("/")
-        return f"{host}{path}".lower() if host else ""
+        return url_key(url)
 
     def _anti_anchor_query(self, profile: AgentProfile, query: str) -> tuple[str, dict[str, Any]]:
         recent = profile.recent_queries[-3:]
@@ -574,15 +527,11 @@ class AgentRunner:
         return False
 
     def _text_overlap(self, left: str, right: str) -> float:
-        left_tokens = self._tokens(left)
-        right_tokens = self._tokens(right)
-        if not left_tokens or not right_tokens:
-            return 0.0
-        return len(left_tokens & right_tokens) / max(1, len(left_tokens | right_tokens))
+        return text_overlap(left, right)
 
     def _tokens(self, text: str) -> set[str]:
-        stop = {"the", "and", "for", "with", "from", "into", "that", "this", "what", "how", "why", "are", "is", "in", "of", "to", "a"}
-        return {token for token in normalise_title(text).replace("-", " ").split() if len(token) > 2 and token not in stop}
+        # Kept for backwards compatibility, but uses shared _tokens from utils
+        return {token for token in normalise_title(text).replace("-", " ").split() if len(token) > 2}
 
 
 def print_episode_summary(episode: EpisodeLog) -> None:

@@ -6,30 +6,30 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .config import Settings, data_path
+from .config import SystemMonitorConfig, data_path, get_monitor_config
 from .utils import append_jsonl, utc_now
 
 
 class SystemMonitor:
-    def __init__(self, settings: Settings, config: dict[str, Any]) -> None:
-        self.settings = settings
-        self.config = config
-        self.enabled = bool(config.get("system_monitor_enabled", True))
-        self.container_name = str(config.get("llm_container_name", "llama-server"))
+    def __init__(self, monitor_config: SystemMonitorConfig | None = None, config: dict[str, Any] | None = None) -> None:
+        self.config = monitor_config or get_monitor_config()
+        self.experiment_config = config or {}
+        self.enabled = bool(self.experiment_config.get("system_monitor_enabled", True))
+        self.container_name = str(self.experiment_config.get("llm_container_name", "llama-server"))
         self.log_path = data_path("logs", "system_monitor.jsonl")
-        self.memory_restart_mb = int(config.get("memory_restart_available_mb", 1200))
-        self.memory_warn_mb = int(config.get("memory_warn_available_mb", 1500))
-        self.swap_warn_mb = int(config.get("swap_warn_used_mb", 2500))
-        self.swap_stop_mb = int(config.get("swap_stop_used_mb", 0))
-        self.temp_warn_c = float(config.get("temperature_warn_c", 75.0))
-        self.temp_pause_c = float(config.get("temperature_pause_c", 80.0))
-        self.temp_stop_c = float(config.get("temperature_stop_c", 85.0))
-        self.cooldown_seconds = float(config.get("thermal_cooldown_seconds", 60.0))
-        self.max_cooldown_cycles = int(config.get("thermal_max_cooldown_cycles", 5))
-        self.restart_every_episodes = int(config.get("llm_restart_every_episodes", 10))
-        self.restart_if_memory_trending_down = bool(config.get("llm_restart_if_memory_trending_down", True))
-        self.memory_trend_window = int(config.get("llm_memory_trend_window", 4))
-        self.min_restart_gap_episodes = int(config.get("llm_min_restart_gap_episodes", 3))
+        self.memory_restart_mb = self.config.memory_restart_available_mb
+        self.memory_warn_mb = self.config.memory_warn_available_mb
+        self.swap_warn_mb = self.config.swap_warn_used_mb
+        self.swap_stop_mb = self.config.swap_stop_used_mb
+        self.temp_warn_c = self.config.temperature_warn_c
+        self.temp_pause_c = self.config.temperature_pause_c
+        self.temp_stop_c = self.config.temperature_stop_c
+        self.cooldown_seconds = self.config.thermal_cooldown_seconds
+        self.max_cooldown_cycles = self.config.thermal_max_cooldown_cycles
+        self.restart_every_episodes = int(self.experiment_config.get("llm_restart_every_episodes", self.config.llm_restart_every_episodes))
+        self.restart_if_memory_trending_down = bool(self.experiment_config.get("llm_restart_if_memory_trending_down", self.config.llm_restart_if_memory_trending_down))
+        self.memory_trend_window = int(self.experiment_config.get("llm_memory_trend_window", self.config.llm_memory_trend_window))
+        self.min_restart_gap_episodes = int(self.experiment_config.get("llm_min_restart_gap_episodes", self.config.llm_min_restart_gap_episodes))
         self._available_history: list[int] = []
         self._last_restart_episode = -10_000
 
@@ -115,13 +115,15 @@ class SystemMonitor:
         return snapshot
 
     def restart_llm(self, progress: Any = print) -> None:
+        from .config import get_llm_config
+        llm_config = get_llm_config()
         progress("[llama_herd] system guard restarting llama.cpp server", flush=True)
-        if self.settings.llm_stop_command:
-            subprocess.run(self.settings.llm_stop_command, shell=True, check=False, timeout=45)
-        if self.settings.llm_restart_command:
-            subprocess.run(self.settings.llm_restart_command, shell=True, check=False, timeout=45)
-        if self.settings.llm_restart_wait > 0:
-            time.sleep(self.settings.llm_restart_wait)
+        if llm_config.stop_command:
+            subprocess.run(llm_config.stop_command, shell=True, check=False, timeout=45)
+        if llm_config.restart_command:
+            subprocess.run(llm_config.restart_command, shell=True, check=False, timeout=45)
+        if llm_config.restart_wait > 0:
+            time.sleep(llm_config.restart_wait)
 
     def _memory_trending_down(self) -> bool:
         if len(self._available_history) < max(3, self.memory_trend_window):

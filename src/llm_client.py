@@ -10,19 +10,19 @@ from urllib.parse import urlparse
 
 import requests
 
-from .config import Settings
+from .config import ROOT, get_llm_config
 
 
 class LLMClient:
-    def __init__(self, settings: Settings | None = None) -> None:
-        self.settings = settings or Settings()
+    def __init__(self) -> None:
+        self.config = get_llm_config()
         self.raw_outputs: list[dict[str, Any]] = []
         self.restart_events: list[dict[str, Any]] = []
-        self.model = self._resolve_model(self.settings.llm_model)
+        self.model = self._resolve_model(self.config.model)
 
     def _headers(self) -> dict[str, str]:
         return {
-            "Authorization": f"Bearer {self.settings.llm_api_key}",
+            "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
         }
 
@@ -71,7 +71,7 @@ class LLMClient:
             "top_p": top_p,
             "stream": False,
         }
-        payload["max_tokens"] = max_tokens if max_tokens is not None else self.settings.llm_max_tokens
+        payload["max_tokens"] = max_tokens if max_tokens is not None else self.config.max_tokens
         content = ""
         try:
             response = self._request(
@@ -135,7 +135,7 @@ class LLMClient:
             "temperature": temperature,
             "top_p": top_p,
             "stream": False,
-            "max_tokens": self.settings.llm_repair_max_tokens,
+            "max_tokens": self.config.repair_max_tokens,
         }
         try:
             response = self._request(
@@ -160,7 +160,7 @@ class LLMClient:
         json: dict[str, Any] | None = None,
         allow_restart: bool = True,
     ) -> requests.Response:
-        attempts = max(1, self.settings.llm_retry_attempts)
+        attempts = max(1, self.config.retry_attempts)
         restarted = False
         last_exc: Exception | None = None
         for cycle in range(2):
@@ -168,7 +168,7 @@ class LLMClient:
                 try:
                     response = requests.request(
                         method,
-                        f"{self.settings.llm_base_url}{path}",
+                        f"{self.config.base_url}{path}",
                         headers=self._headers(),
                         json=json,
                         timeout=timeout,
@@ -185,7 +185,7 @@ class LLMClient:
                     if attempt == attempts:
                         break
                 self._sleep_before_retry(attempt)
-            if not allow_restart or restarted or not self.settings.llm_restart_command:
+            if not allow_restart or restarted or not self.config.restart_command:
                 break
             restarted = True
             self._restart_server(last_exc)
@@ -198,57 +198,65 @@ class LLMClient:
 
     def _sleep_before_retry(self, attempt: int) -> None:
         delay = min(
-            self.settings.llm_retry_max_delay,
-            self.settings.llm_retry_initial_delay * (2 ** max(0, attempt - 1)),
+            self.config.retry_max_delay,
+            self.config.retry_initial_delay * (2 ** max(0, attempt - 1)),
         )
         if delay > 0:
             time.sleep(delay)
 
     def _sleep_after_restart(self) -> None:
-        if self.settings.llm_restart_wait > 0:
-            time.sleep(self.settings.llm_restart_wait)
+        if self.config.restart_wait > 0:
+            time.sleep(self.config.restart_wait)
 
     def _restart_server(self, reason: Exception | None) -> None:
         event: dict[str, Any] = {"reason": str(reason or "unknown"), "stopped": False, "started": False}
         try:
-            log_path = Path(self.settings.llm_restart_log)
-            if self.settings.llm_restart_log:
-                log_path = Path(self.settings.llm_restart_log)
+            log_path = None
+            if self.config.restart_log:
+                log_path = Path(self.config.restart_log)
                 if not log_path.is_absolute():
-                    log_path = self.settings.root / log_path
-            log_path.parent.mkdir(parents=True, exist_ok=True)
+                    log_path = ROOT / log_path
+                log_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with log_path.open("ab") as log_handle:
-                if self.settings.llm_stop_command:
-                    stop = subprocess.run(
-                        self.settings.llm_stop_command,
+            if log_path:
+                with log_path.open("ab") as log_handle:
+                    if self.config.stop_command:
+                        stop = subprocess.run(
+                            self.config.stop_command,
+                            shell=True,
+                            check=False,
+                            timeout=30,
+                            stdout=log_handle,
+                            stderr=subprocess.STDOUT,
+                        )
+                        event["stopped"] = stop.returncode == 0
+                        event["stop_returncode"] = stop.returncode
+                    else:
+                        event["stopped"] = self._kill_process_on_base_url_port()
+
+                    subprocess.Popen(
+                        self.config.restart_command,
                         shell=True,
-                        check=False,
-                        timeout=30,
+                        stdin=subprocess.DEVNULL,
                         stdout=log_handle,
                         stderr=subprocess.STDOUT,
+                        start_new_session=True,
                     )
-                    event["stopped"] = stop.returncode == 0
-                    event["stop_returncode"] = stop.returncode
-                else:
-                    event["stopped"] = self._kill_process_on_base_url_port()
-
+            else:
                 subprocess.Popen(
-                    self.settings.llm_restart_command,
+                    self.config.restart_command,
                     shell=True,
                     stdin=subprocess.DEVNULL,
-                    stdout=log_handle,
-                    stderr=subprocess.STDOUT,
                     start_new_session=True,
                 )
             event["started"] = True
-            event["log"] = str(log_path)
+            event["log"] = str(log_path) if log_path else None
         except Exception as exc:
             event["restart_error"] = str(exc)
         self.restart_events.append(event)
 
     def _kill_process_on_base_url_port(self) -> bool:
-        parsed = urlparse(self.settings.llm_base_url)
+        parsed = urlparse(self.config.base_url)
         port = parsed.port
         if port is None:
             return False

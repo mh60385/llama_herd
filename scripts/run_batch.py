@@ -34,7 +34,7 @@ def main() -> None:
     if args.no_system_monitor:
         config["system_monitor_enabled"] = False
     runner = AgentRunner()
-    monitor = SystemMonitor(runner.settings, config)
+    monitor = SystemMonitor(None, config)
     if args.all_agents:
         agents = [item["agent_id"] for item in load_agents_config().get("agents", [])]
         episodes = args.episodes or int(config.get("episodes_per_run", 10))
