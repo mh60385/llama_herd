@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.config import data_path, load_agents_config
-from src.profile_seed import deterministic_public_world_fallback_profile
+from src.profile_seed import create_initial_profile
 from src.schemas import AgentProfile
 from src.storage import Storage
 from src.utils import utc_now
@@ -18,6 +18,19 @@ from src.utils import utc_now
 def main() -> None:
     parser = argparse.ArgumentParser(description="Initialize the local drift experiment.")
     parser.add_argument("--reset", action="store_true", help="Remove existing experiment data first.")
+    parser.add_argument(
+        "--seed-strategy",
+        choices=["public_world", "seeded", "wikipedia"],
+        default="public_world",
+        help="Seeding strategy: public_world (default), seeded, or wikipedia vital articles.",
+    )
+    parser.add_argument(
+        "--wikipedia-level",
+        type=int,
+        choices=[1, 2, 3, 4, 5],
+        default=4,
+        help="Wikipedia Vital Articles level (1-5, higher = more topics). Only used with --seed-strategy wikipedia.",
+    )
     args = parser.parse_args()
 
     if args.reset and data_path().exists():
@@ -34,7 +47,11 @@ def main() -> None:
             continue
         name = item.get("name", agent_id)
         seed = str(item.get("profile_seed") or f"{agent_id}:llama-herd:2026-05-25")
-        seeded = deterministic_public_world_fallback_profile(agent_id, name, seed)
+        seeded = create_initial_profile(
+            agent_id, name, seed,
+            strategy=args.seed_strategy,
+            wikipedia_level=args.wikipedia_level,
+        )
         initial = seeded["initial_profile"]
         profile = AgentProfile(
             agent_id=agent_id,

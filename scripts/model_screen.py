@@ -16,7 +16,7 @@ from src.config import data_path
 from src.llm_client import LLMClient
 from src.profile_seed import deterministic_seeded_initial_profile
 from src.prompts import prompt_metadata, search_query_prompt
-from src.utils import append_jsonl, normalise_title, utc_now, write_json
+from src.utils import _tokens, append_jsonl, normalise_title, text_overlap, utc_now, write_json
 
 
 AGENT_IDS = [f"seed_test_{index:02d}" for index in range(1, 6)]
@@ -241,7 +241,7 @@ def loose_topic_prompt(seed: str) -> list[dict[str, str]]:
 
 
 def find_leaked_terms(query: str) -> list[str]:
-    query_tokens = tokens(query)
+    query_tokens = _tokens(query)
     lowered = normalise_title(query)
     leaked = []
     for term in LEAK_TERMS:
@@ -254,41 +254,8 @@ def find_leaked_terms(query: str) -> list[str]:
 
 
 def seed_following(query: str, stable_interests: list[str]) -> bool:
-    query_tokens = tokens(query)
-    return any(len(query_tokens & tokens(interest)) >= 2 for interest in stable_interests)
-
-
-def text_overlap(left: str, right: str) -> float:
-    left_tokens = tokens(left)
-    right_tokens = tokens(right)
-    if not left_tokens or not right_tokens:
-        return 0.0
-    return len(left_tokens & right_tokens) / max(1, len(left_tokens | right_tokens))
-
-
-def tokens(text: str) -> set[str]:
-    stop = {
-        "the",
-        "and",
-        "for",
-        "with",
-        "from",
-        "into",
-        "that",
-        "this",
-        "what",
-        "how",
-        "why",
-        "are",
-        "is",
-        "in",
-        "of",
-        "to",
-        "a",
-        "an",
-        "across",
-    }
-    return {token for token in normalise_title(text).replace("-", " ").split() if len(token) > 2 and token not in stop}
+    query_tokens = _tokens(query)
+    return any(len(query_tokens & _tokens(interest)) >= 2 for interest in stable_interests)
 
 
 def cluster_hits(topics: list[str]) -> dict[str, list[str]]:

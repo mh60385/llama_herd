@@ -28,12 +28,13 @@ def main() -> None:
     parser.add_argument("--all-agents", action="store_true", help="Run configured agents sequentially.")
     parser.add_argument("--resume", action="store_true", help="Skip episodes already saved in data/logs.")
     parser.add_argument("--no-system-monitor", action="store_true", help="Disable pre-episode system guard checks.")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed progress for each stage.")
     args = parser.parse_args()
 
     config = load_experiment_config()
     if args.no_system_monitor:
         config["system_monitor_enabled"] = False
-    runner = AgentRunner()
+    runner = AgentRunner(verbose=args.verbose)
     monitor = SystemMonitor(None, config)
     if args.all_agents:
         agents = [item["agent_id"] for item in load_agents_config().get("agents", [])]

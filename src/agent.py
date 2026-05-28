@@ -44,34 +44,44 @@ EMBODIED_DIARY_PATTERNS = [
 
 
 class AgentRunner:
-    def __init__(self) -> None:
+    def __init__(self, verbose: bool = False) -> None:
         self.config = load_experiment_config()
         self.storage = Storage()
         self.llm = LLMClient()
         from .config import get_search_config
         self.search = SearchManager(get_search_config(), int(self.config.get("max_search_results", 5)))
         self.reader = SourceReader(int(self.config.get("max_source_chars", 4000)))
+        self.verbose = verbose
+        self._episode_stage = 0
 
     def _progress(self, message: str) -> None:
         print(f"[llama_herd] {message}", flush=True)
 
+    def _verbose_progress(self, stage: str, message: str) -> None:
+        if self.verbose:
+            self._episode_stage += 1
+            print(f"[{self._episode_stage}] {stage}: {message}", flush=True)
+        else:
+            self._progress(message)
+
     def run_episode(self, agent_id: str) -> EpisodeLog:
-        self._progress(f"starting episode for {agent_id}")
+        self._verbose_progress("start", f"starting episode for {agent_id}")
+        self._episode_stage = 0
         restart_start = len(self.llm.restart_events)
-        self._progress("checking llama.cpp server")
+        self._verbose_progress("healthcheck", "checking llama.cpp server")
         ok, detail = self.llm.healthcheck()
         if not ok:
             raise RuntimeError(f"LLM server unavailable: {detail}")
-        self._progress(f"llama.cpp ready; model={detail}")
+        self._verbose_progress("ready", f"llama.cpp ready; model={detail}")
 
-        self._progress("loading profile")
+        self._verbose_progress("load_profile", "loading profile")
         profile = self.storage.load_profile(agent_id)
         before = profile.version
         episode_id = f"{agent_id}-{uuid.uuid4().hex[:10]}"
         errors: list[dict[str, Any]] = []
         raw_start = len(self.llm.raw_outputs)
 
-        self._progress("asking model for search query")
+        self._verbose_progress("generate_query", "asking model for search query")
         plan = self.llm.chat(
             search_query_prompt(profile.model_dump()),
             temperature=float(self.config.get("temperature", 0.7)),
@@ -84,19 +94,19 @@ class AgentRunner:
         search_query, anti_anchor = self._anti_anchor_query(profile, search_query)
         if anti_anchor:
             errors.append(anti_anchor)
-        self._progress(f"search query: {search_query}")
+        self._verbose_progress("query_ready", f"search query: {search_query}")
 
-        self._progress("running search backends")
+        self._verbose_progress("search", "running search backends")
         results = self.search.search(search_query)
         errors.extend(self.search.errors)
         self.search.errors = []
         selected = self._select_favourite_source(profile, results, errors)
-        self._progress(f"search returned {len(results)} results; selected {len(selected)} sources")
+        self._verbose_progress("search_done", f"search returned {len(results)} results; selected {len(selected)} sources")
 
         summaries: list[SourceSummary] = []
         valid_source_summaries = True
         for index, result in enumerate(selected, start=1):
-            self._progress(f"reading source {index}/{len(selected)}: {result.title[:80] or result.url[:80]}")
+            self._verbose_progress(f"read_source_{index}", f"reading source {index}/{len(selected)}: {result.title[:80] or result.url[:80]}")
             text, extraction_error = self.reader.read(result)
             if extraction_error:
                 errors.append(
@@ -106,8 +116,8 @@ class AgentRunner:
                         "error": extraction_error,
                     }
                 )
-                self._progress(f"source {index} fetch warning; using fallback text when available")
-            self._progress(f"asking model to summarise source {index}/{len(selected)}")
+                self._verbose_progress(f"source_warn_{index}", f"source {index} fetch warning; using fallback text when available")
+            self._verbose_progress(f"summarize_{index}", f"asking model to summarise source {index}/{len(selected)}")
             payload = self.llm.chat(
                 source_summary_prompt(profile.model_dump(), result.model_dump(), text or result.snippet),
                 temperature=0.2,
@@ -131,7 +141,7 @@ class AgentRunner:
                 )
             )
 
-        self._progress("asking model to write diary entry")
+        self._verbose_progress("write_diary", "asking model to write diary entry")
         diary_payload = self.llm.chat(
             diary_prompt(profile.model_dump(), [s.model_dump() for s in summaries]),
             max_tokens=280,
@@ -144,7 +154,7 @@ class AgentRunner:
         if diary_artifacts.get("embodied_language_detected"):
             errors.append({"stage": "diary_artifact", **diary_artifacts})
 
-        self._progress("asking model to reflect on behaviour")
+        self._verbose_progress("reflect", "asking model to reflect on behaviour")
         reflection_payload = self.llm.chat(
             reflection_prompt(profile.model_dump(), diary.model_dump(), [s.model_dump() for s in summaries]),
             max_tokens=280,
@@ -158,7 +168,7 @@ class AgentRunner:
             **self._filter_fields(reflection_payload, Reflection),
         )
 
-        self._progress("asking model for conservative profile update")
+        self._verbose_progress("profile_update", "asking model for conservative profile update")
         update_payload = self.llm.chat(
             profile_update_prompt(profile.model_dump(), diary.model_dump(), reflection.model_dump()),
             max_tokens=280,
@@ -173,7 +183,7 @@ class AgentRunner:
             **self._filter_fields(update_payload, ProfileUpdateProposal),
         )
 
-        self._progress("applying cautious profile update")
+        self._verbose_progress("apply_update", "applying cautious profile update")
         new_profile, applied = self._apply_profile_update(
             profile,
             proposal,
@@ -209,9 +219,9 @@ class AgentRunner:
             raw_model_outputs=self.llm.raw_outputs[raw_start:],
             errors=errors,
         )
-        self._progress("saving episode JSONL and SQLite records")
+        self._verbose_progress("save", "saving episode JSONL and SQLite records")
         self.storage.save_episode(episode)
-        self._progress(f"episode saved; profile version {before} -> {new_profile.version}")
+        self._verbose_progress("complete", f"episode saved; profile version {before} -> {new_profile.version}")
         return episode
 
     def _select_favourite_source(
@@ -224,7 +234,7 @@ class AgentRunner:
                 "expected_value": "low",
             }
             return []
-        self._progress(f"asking model to choose favourite source from {len(results)} search results")
+        self._verbose_progress("select_source", f"asking model to choose favourite source from {len(results)} search results")
         payload = self.llm.chat(
             source_selection_prompt(profile.model_dump(), [result.model_dump() for result in results]),
             temperature=0.2,
@@ -256,7 +266,8 @@ class AgentRunner:
         payload["selected_url"] = results[selected_index].url
         payload["selected_source_type"] = self._source_type(results[selected_index].url)
         self._last_source_selection = payload
-        self._progress(
+        self._verbose_progress(
+            "source_selected",
             f"favourite source {selected_index + 1}/{len(results)}: {results[selected_index].title[:80]}"
         )
         return [results[selected_index]]
@@ -504,7 +515,7 @@ class AgentRunner:
         previous_topics = [str(item.get("first_result_topic", "")) for item in profile.observations[-5:]]
         anchors = recent + previous_topics
         for anchor in anchors:
-            if self._text_overlap(query, anchor) >= 0.72:
+            if text_overlap(query, anchor) >= 0.72:
                 diversified = f"{query} contrasting perspectives alternative sources"
                 return diversified[:240], {
                     "stage": "anti_anchoring",
@@ -522,16 +533,9 @@ class AgentRunner:
             return True
         for index, query in enumerate(unique):
             for other in unique[index + 1 :]:
-                if self._text_overlap(query, other) >= 0.82:
+                if text_overlap(query, other) >= 0.82:
                     return True
         return False
-
-    def _text_overlap(self, left: str, right: str) -> float:
-        return text_overlap(left, right)
-
-    def _tokens(self, text: str) -> set[str]:
-        # Kept for backwards compatibility, but uses shared _tokens from utils
-        return {token for token in normalise_title(text).replace("-", " ").split() if len(token) > 2}
 
 
 def print_episode_summary(episode: EpisodeLog) -> None:

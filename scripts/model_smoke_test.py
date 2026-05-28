@@ -32,6 +32,17 @@ CONTAINER = "llama-model-smoke"
 MODEL_ROOT = Path("/home/deadbod/jetson-admin/local-llm/models")
 BASE_URL = "http://127.0.0.1:10001/v1"
 
+# Per-model optimal parameters for Jetson Orin Nano (8GB unified memory)
+MODEL_OPTIMAL_PARAMS = {
+    "qwen2.5-0.5b-q4": {"ngl": 99, "ctx": 2048},
+    "llama-3.2-1b-q4": {"ngl": 99, "ctx": 2048},
+    "gemma-3-1b-q4": {"ngl": 99, "ctx": 2048},
+    "qwen2.5-1.5b-q4": {"ngl": 50, "ctx": 2048},
+    "llama-3.2-3b-iq4-xs": {"ngl": 30, "ctx": 1536},
+    "granite-3.3-2b-q4": {"ngl": 40, "ctx": 1536},
+    "ministral-3b-q4": {"ngl": 30, "ctx": 1536},
+}
+
 MODELS = [
     {
         "name": "qwen2.5-0.5b-q4",
@@ -74,9 +85,10 @@ MODELS = [
 def main() -> None:
     parser = argparse.ArgumentParser(description="Smoke test local GGUF models for llama_herd.")
     parser.add_argument("--only", nargs="*", default=[], help="Model names to test.")
-    parser.add_argument("--ctx", type=int, default=2048, help="llama.cpp context length.")
-    parser.add_argument("--ngl", type=int, default=99, help="llama.cpp GPU layer count.")
+    parser.add_argument("--ctx", type=int, default=2048, help="llama.cpp context length (overridden by --optimal).")
+    parser.add_argument("--ngl", type=int, default=99, help="llama.cpp GPU layer count (overridden by --optimal).")
     parser.add_argument("--max-tokens", type=int, default=240, help="Fallback max generated tokens per prompt.")
+    parser.add_argument("--optimal", action="store_true", help="Use per-model optimal -ngl and -ctx for Jetson Orin Nano.")
     args = parser.parse_args()
 
     selected = [item for item in MODELS if not args.only or item["name"] in args.only]
@@ -91,17 +103,27 @@ def main() -> None:
     )
     stop_container(CONTAINER)
     for model in selected:
-        result = test_model(model, args.ctx, args.ngl, args.max_tokens)
+        # Use per-model optimal params if requested
+        ctx = args.ctx
+        ngl = args.ngl
+        if args.optimal and model["name"] in MODEL_OPTIMAL_PARAMS:
+            optimal = MODEL_OPTIMAL_PARAMS[model["name"]]
+            ctx = optimal["ctx"]
+            ngl = optimal["ngl"]
+            print(f"[OPTIMIZED] {model['name']}: ngl={ngl}, ctx={ctx}", flush=True)
+        
+        result = test_model(model, ctx, ngl, args.max_tokens)
         results.append(result)
         print_summary(result)
         stop_container(CONTAINER)
-        time.sleep(2)
+        time.sleep(1)  # Reduced from 2s for faster testing
 
     output = {
         "timestamp": utc_now(),
         "ctx": args.ctx,
         "ngl": args.ngl,
         "max_tokens": args.max_tokens,
+        "optimal_params_used": args.optimal,
         "profile_seed_smoke": seed_result,
         "results": results,
     }
@@ -120,6 +142,8 @@ def test_model(model: dict[str, str], ctx: int, ngl: int, max_tokens: int) -> di
         "loaded": False,
         "prompt_results": [],
         "errors": [],
+        "ctx": ctx,
+        "ngl": ngl,
     }
     if not path.exists():
         result["errors"].append({"stage": "file", "error": "missing_model_file"})
@@ -167,6 +191,8 @@ def start_container(model_path: str, ctx: int, ngl: int) -> subprocess.Completed
         str(ctx),
         "-ngl",
         str(ngl),
+        "--threads",
+        "4",  # Limit to 4 threads for Orin Nano (6 ARM cores)
     ]
     return subprocess.run(cmd, check=True, capture_output=True, text=True)
 
@@ -429,8 +455,11 @@ def print_summary(result: dict[str, Any]) -> None:
     prompts = result.get("prompt_results", [])
     passed = sum(1 for item in prompts if item.get("passed"))
     total = len(prompts)
+    # Show the actual parameters used for this test
+    ngl = result.get("ngl", "?")
+    ctx = result.get("ctx", "?")
     print(
-        f"{result['name']}: loaded={result['loaded']} prompts={passed}/{total} "
+        f"{result['name']} [ngl={ngl},ctx={ctx}]: loaded={result['loaded']} prompts={passed}/{total} "
         f"load_mem={result.get('memory_after_load', '')} prompt_mem={result.get('memory_after_prompts', '')}",
         flush=True,
     )

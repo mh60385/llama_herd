@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.config import data_path
-from src.utils import utc_now, write_json
+from src.utils import _tokens, domain_from_url, normalise_title, text_overlap, utc_now, write_json
 
 
 EMBODIED_PATTERNS = [
@@ -176,11 +176,6 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def domain_from_url(url: str) -> str:
-    domain = urlparse(str(url or "")).netloc.lower()
-    return domain.removeprefix("www.")
-
-
 def source_type_for_url(url: str) -> str:
     domain = domain_from_url(url)
     path = urlparse(str(url or "")).path.lower()
@@ -203,17 +198,6 @@ def source_type_for_url(url: str) -> str:
     if any(part in domain for part in ["amazon.", "shop", "store"]) or "/product" in path:
         return "commercial"
     return "unknown"
-
-
-def tokens(text: str) -> set[str]:
-    stop = {"the", "and", "for", "with", "from", "into", "that", "this", "what", "how", "why", "are", "was", "were"}
-    return {token for token in re.findall(r"[a-z0-9]{3,}", text.lower()) if token not in stop}
-
-
-def text_overlap(left: str, right: str) -> float:
-    left_tokens = tokens(left)
-    right_tokens = tokens(right)
-    return len(left_tokens & right_tokens) / max(1, len(left_tokens | right_tokens))
 
 
 def entropy(counter: Counter[str]) -> float:

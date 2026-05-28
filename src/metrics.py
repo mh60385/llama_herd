@@ -8,9 +8,8 @@ import math
 from itertools import combinations
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
-from .utils import normalise_title, read_json, utc_now, write_json
+from .utils import domain_from_url, normalise_title, read_json, utc_now, write_json
 
 
 def main() -> None:
@@ -323,11 +322,6 @@ def selected_source_rank(episode: dict[str, Any]) -> int | str:
     selected = episode.get("source_selection") or {}
     index = selected.get("selected_index")
     return int(index) + 1 if isinstance(index, int) else ""
-
-
-def domain_from_url(url: str) -> str:
-    host = urlparse(url).netloc.lower()
-    return host.removeprefix("www.")
 
 
 def has_ai_tech_cluster(text: str) -> bool:

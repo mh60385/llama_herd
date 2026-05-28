@@ -6,12 +6,11 @@ import json
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.config import data_path
-from src.utils import read_json, utc_now
+from src.utils import domain_from_url, read_json, utc_now
 
 
 def main() -> None:
@@ -119,10 +118,6 @@ def inline_list(values: list[str]) -> str:
     if not clean:
         return "`none`"
     return ", ".join(f"`{value}`" for value in clean[:8])
-
-
-def domain_from_url(url: str) -> str:
-    return urlparse(str(url)).netloc.lower().removeprefix("www.")
 
 
 if __name__ == "__main__":

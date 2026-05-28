@@ -119,6 +119,14 @@ python scripts/model_screen.py \
   --models qwen2.5-1.5b-q4 llama-3.2-1b-q4
 ```
 
+Use `--keep-container` to avoid repeated container restarts (faster on Jetson):
+
+```bash
+python scripts/model_screen.py \
+  --models qwen2.5-1.5b-q4 llama-3.2-1b-q4 \
+  --keep-container
+```
+
 This writes `data/model_screen/summary.md` with a shortlist based on load, JSON, seed, topic, and prompt behavior.
 The model-screening rationale and paper-oriented summary are documented in
 `PIPELINE_SUMMARY.md`.
@@ -130,6 +138,16 @@ python scripts/model_comparison.py \
   --models qwen2.5-1.5b-q4 llama-3.2-1b-q4 \
   --agents 3 \
   --episodes 10
+```
+
+Use `--keep-containers` to avoid repeated container restarts (faster on Jetson):
+
+```bash
+python scripts/model_comparison.py \
+  --models qwen2.5-1.5b-q4 llama-3.2-1b-q4 \
+  --agents 3 \
+  --episodes 10 \
+  --keep-containers
 ```
 
 This temporarily moves the current `data/` directory aside, runs isolated mini-studies per model,

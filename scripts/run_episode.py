@@ -13,8 +13,9 @@ from src.agent import AgentRunner, print_episode_summary
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run one research episode for one profile.")
     parser.add_argument("--agent", default="agent_01", help="Agent profile ID to run.")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed progress for each stage.")
     args = parser.parse_args()
-    episode = AgentRunner().run_episode(args.agent)
+    episode = AgentRunner(verbose=args.verbose).run_episode(args.agent)
     print_episode_summary(episode)
 
 
