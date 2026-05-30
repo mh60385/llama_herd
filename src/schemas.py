@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -167,6 +165,10 @@ class EpisodeLog(BaseModel):
     search_query: str = ""
     prompt_metadata: dict[str, Any] = Field(default_factory=dict)
     source_selection: dict[str, Any] = Field(default_factory=dict)
+    source_selection_metrics: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Metrics for source selection, including post-rank of selected results",
+    )
     search_results: list[SearchResult] = Field(default_factory=list)
     selected_sources: list[SearchResult] = Field(default_factory=list)
     source_summaries: list[SourceSummary] = Field(default_factory=list)

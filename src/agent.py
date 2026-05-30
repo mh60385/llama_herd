@@ -215,6 +215,7 @@ class AgentRunner:
             search_query=search_query,
             prompt_metadata=prompt_metadata(),
             source_selection=getattr(self, "_last_source_selection", {}),
+            source_selection_metrics=getattr(self, "_last_source_selection_metrics", {}),
             search_results=results,
             selected_sources=selected,
             source_summaries=summaries,
@@ -238,6 +239,12 @@ class AgentRunner:
                 "selected_index": None,
                 "selection_reason": "No search results available.",
                 "expected_value": "low",
+            }
+            self._last_source_selection_metrics = {
+                "total_results": 0,
+                "selected_index": None,
+                "post_rank": None,
+                "selection_reason": "No search results available.",
             }
             return []
         self._progress(f"asking model to choose favourite source from {len(results)} search results")
@@ -272,8 +279,19 @@ class AgentRunner:
         payload["selected_url"] = results[selected_index].url
         payload["selected_source_type"] = self._source_type(results[selected_index].url)
         self._last_source_selection = payload
+        
+        # Calculate post-rank metrics
+        total_results = len(results)
+        post_rank = selected_index + 1  # 1-based rank
+        self._last_source_selection_metrics = {
+            "total_results": total_results,
+            "selected_index": selected_index,
+            "post_rank": post_rank,
+            "selection_reason": payload.get("selection_reason", ""),
+        }
+        
         self._progress(
-            f"favourite source {selected_index + 1}/{len(results)}: {results[selected_index].title[:80]}"
+            f"favourite source {post_rank}/{total_results}: {results[selected_index].title[:80]}"
         )
         return [results[selected_index]]
 
@@ -600,6 +618,10 @@ def print_episode_summary(episode: EpisodeLog) -> None:
         print(f"- [{source.backend}] {source.title} {source.url}")
     if episode.source_selection:
         print(f"Favourite source reason: {episode.source_selection.get('selection_reason', '')}")
+    if episode.source_selection_metrics:
+        post_rank = episode.source_selection_metrics.get("post_rank")
+        total_results = episode.source_selection_metrics.get("total_results")
+        print(f"Post-rank: {post_rank}/{total_results}")
     diary = episode.diary_entry.diary_summary if episode.diary_entry else ""
     print(f"Diary summary: {diary}")
     print(f"Applied profile update: {episode.applied_profile_update}")
