@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import textwrap
 import uuid
 from typing import Any
 
@@ -84,7 +85,7 @@ class AgentRunner:
         self._verbose_progress("generate_query", "asking model for search query")
         plan = self.llm.chat(
             search_query_prompt(profile.model_dump()),
-            temperature=float(self.config.get("temperature", 0.7)),
+            temperature=float(self.config.get("temperature", 1.0)),
             top_p=float(self.config.get("top_p", 0.9)),
             max_tokens=120,
         )
@@ -154,18 +155,12 @@ class AgentRunner:
         if diary_artifacts.get("embodied_language_detected"):
             errors.append({"stage": "diary_artifact", **diary_artifacts})
 
-        self._verbose_progress("reflect", "asking model to reflect on behaviour")
-        reflection_payload = self.llm.chat(
-            reflection_prompt(profile.model_dump(), diary.model_dump(), [s.model_dump() for s in summaries]),
-            max_tokens=280,
-        )
-        if "error" in reflection_payload:
-            errors.append({"stage": "reflection", **reflection_payload})
-            reflection_payload = {"concise_self_assessment": "Reflection unavailable due to model output error."}
+        # REFLECTION REMOVED for efficiency - saving 1 LLM call/episode
+        self._verbose_progress("reflect", "skipping reflection for efficiency")
         reflection = Reflection(
             agent_id=agent_id,
             episode_id=episode_id,
-            **self._filter_fields(reflection_payload, Reflection),
+            concise_self_assessment="Reflection disabled for efficiency",
         )
 
         self._verbose_progress("profile_update", "asking model for conservative profile update")
@@ -400,7 +395,7 @@ class AgentRunner:
             episodes = sorted(item for item in bucket["episodes"] if item)
             domains = sorted(item for item in bucket["domains"] if item)
             repeated_query = self._queries_are_near_identical(bucket["queries"])
-            promoted = len(episodes) >= 3 and len(domains) >= 2 and not repeated_query
+            promoted = len(episodes) >= 2 and len(domains) >= 1 and not repeated_query
             item = {
                 "interest": bucket["interest"],
                 "episode_count": len(episodes),
@@ -513,14 +508,37 @@ class AgentRunner:
     def _anti_anchor_query(self, profile: AgentProfile, query: str) -> tuple[str, dict[str, Any]]:
         recent = profile.recent_queries[-3:]
         previous_topics = [str(item.get("first_result_topic", "")) for item in profile.observations[-5:]]
-        anchors = recent + previous_topics
+        # NEW: collect all previous source titles/URLs to prevent recycling
+        all_previous_titles = []
+        for obs in profile.observations:
+            if obs.get("first_result_topic"):
+                all_previous_titles.append(str(obs["first_result_topic"]))
+            for url in obs.get("source_urls", []):
+                all_previous_titles.append(url)
+        anchors = recent + previous_topics + all_previous_titles
+        
+        # NEW: check exact matches first (highest priority)
+        query_clean = query.strip()
         for anchor in anchors:
-            if text_overlap(query, anchor) >= 0.72:
+            if query_clean == anchor.strip():
+                diversified = f"{query} new perspectives different angles"
+                return diversified[:240], {
+                    "stage": "anti_anchoring",
+                    "mode": "block_exact_title_match",
+                    "reason": "query_matches_previous_source_exactly",
+                    "anchor": anchor[:240],
+                    "original_query": query,
+                    "diversified_query": diversified[:240],
+                }
+        
+        # Existing: fuzzy overlap check
+        for anchor in anchors:
+            if text_overlap(query, anchor) >= 0.50:
                 diversified = f"{query} contrasting perspectives alternative sources"
                 return diversified[:240], {
                     "stage": "anti_anchoring",
                     "mode": "explore_contrast_source_diversify",
-                    "reason": "query_overlap_with_recent_query_or_first_result_topic",
+                    "reason": "query_overlap_with_recent_query_or_source",
                     "anchor": anchor[:240],
                     "original_query": query,
                     "diversified_query": diversified[:240],
@@ -539,26 +557,118 @@ class AgentRunner:
 
 
 def print_episode_summary(episode: EpisodeLog) -> None:
-    print("\nEpisode complete\n")
-    print(f"Agent: {episode.agent_id}")
-    print(f"Profile version before: {episode.profile_version_before}")
-    print(f"Profile version after: {episode.profile_version_after}")
-    print(f"Search query: {episode.search_query}")
+    width = 80
+    sep = "=" * width
+
+    print(f"\n{sep}")
+    print(f"  EPISODE COMPLETE: {episode.agent_id}")
+    print(f"  Version: {episode.profile_version_before} -> {episode.profile_version_after}")
+    print(f"{sep}\n")
+
+    # Search info
+    print(f"  SEARCH QUERY: {episode.search_query}")
     if episode.prompt_metadata:
-        print(f"Prompt version: {episode.prompt_metadata.get('prompt_version')}")
+        print(f"  Prompt version: {episode.prompt_metadata.get('prompt_version')}")
     backends = ", ".join(sorted({r.backend for r in episode.search_results})) or "none"
-    print(f"Search backends used: {backends}")
-    print("Selected sources:")
+    print(f"  Backends: {backends}")
+
+    # Selected sources
+    print(f"\n  SELECTED SOURCES:")
     for source in episode.selected_sources:
-        print(f"- [{source.backend}] {source.title} {source.url}")
+        print(f"    [{source.backend}] {source.title[:60]}")
+        print(f"      {source.url}")
     if episode.source_selection:
-        print(f"Favourite source reason: {episode.source_selection.get('selection_reason', '')}")
-    diary = episode.diary_entry.diary_summary if episode.diary_entry else ""
-    print(f"Diary summary: {diary}")
-    print(f"Applied profile update: {episode.applied_profile_update}")
-    if episode.errors:
-        print("Errors:")
-        for error in episode.errors:
-            print(f"- {error.get('stage', 'unknown')}: {error.get('error') or error.get('detail') or error}")
+        reason = episode.source_selection.get('selection_reason', '')
+        if reason:
+            print(f"\n    Reason: {textwrap.fill(reason, width=width-6, initial_indent='    ', subsequent_indent='    ')}")
+
+    # Diary entries
+    print(f"\n{'-' * width}")
+    print(f"  DIARY")
+    print(f"{'-' * width}")
+    if episode.diary_entry:
+        d = episode.diary_entry
+        fields = [
+            ("Summary", d.diary_summary),
+            ("What caught attention", d.what_caught_attention),
+            ("What was uncertain", d.what_was_uncertain),
+            ("Possible next interest", d.possible_next_interest),
+        ]
+        for label, value in fields:
+            if value:
+                print(f"\n  {label}:")
+                print(f"    {textwrap.fill(value, width=width-4)}")
     else:
-        print("Errors: none")
+        print("    No diary entry available")
+
+    # Behaviour / Reflection
+    print(f"\n{'-' * width}")
+    print(f"  BEHAVIOUR REFLECTION")
+    print(f"{'-' * width}")
+    if episode.reflection:
+        r = episode.reflection
+        fields = [
+            ("Observed behaviour", r.observed_behaviour),
+            ("Repeated patterns", r.repeated_patterns),
+            ("Source preferences", r.source_preferences),
+            ("Uncertainty handling", r.uncertainty_handling),
+            ("Possible drift", r.possible_drift),
+            ("Self-assessment", r.concise_self_assessment),
+        ]
+        for label, value in fields:
+            if value:
+                print(f"\n  {label}:")
+                print(f"    {textwrap.fill(value, width=width-4)}")
+    else:
+        print("    No reflection available")
+
+    # Conservative profile updates
+    print(f"\n{'-' * width}")
+    print(f"  CONSERVATIVE PROFILE UPDATES")
+    print(f"{'-' * width}")
+    applied = episode.applied_profile_update
+    if applied:
+        print(f"\n  Applied: {applied.get('applied', False)}")
+        if applied.get('from_version') and applied.get('to_version'):
+            print(f"  Profile: v{applied['from_version']} -> v{applied['to_version']}")
+        if applied.get('observation_added'):
+            print(f"  Observation added: {applied['observation_added']}")
+        if applied.get('tentative_interests'):
+            print(f"\n  Tentative interests:")
+            for item in applied['tentative_interests']:
+                print(f"    - {item['interest']} (seen {item.get('episode_count', 0)}x, {item.get('domain_count', 0)} domains) [{item.get('status', 'unknown')}]")
+        if applied.get('stable_interests'):
+            print(f"\n  Stable interests:")
+            for item in applied['stable_interests']:
+                print(f"    - {item}")
+        if applied.get('promoted_interests'):
+            print(f"\n  Promoted to stable:")
+            for item in applied['promoted_interests']:
+                print(f"    + {item}")
+        if applied.get('recent_memory_summary'):
+            print(f"\n  Memory summary:")
+            print(f"    {textwrap.fill(applied['recent_memory_summary'], width=width-4)}")
+        if applied.get('rejected_candidate_interests'):
+            print(f"\n  Rejected interests:")
+            for item in applied['rejected_candidate_interests']:
+                print(f"    x {item.get('interest', '?')} ({item.get('reason', 'unknown')})")
+        if applied.get('single_source_facts'):
+            print(f"\n  Single-source facts (flagged):")
+            for fact in applied['single_source_facts']:
+                print(f"    ! {fact.get('fact', '')[:60]}")
+    else:
+        print("    No profile updates applied")
+
+    # Errors
+    if episode.errors:
+        print(f"\n{'-' * width}")
+        print(f"  ERRORS")
+        print(f"{'-' * width}")
+        for error in episode.errors:
+            stage = error.get('stage', 'unknown')
+            msg = error.get('error') or error.get('detail') or str(error)
+            print(f"    [{stage}] {msg}")
+    else:
+        print(f"\n  No errors")
+
+    print(f"\n{sep}\n")

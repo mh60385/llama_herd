@@ -42,6 +42,8 @@ class SearchManager:
             backends.append(self._search_crossref)
         if self.config.gdelt_enabled:
             backends.append(self._search_gdelt)
+        if self.config.wikipedia_enabled:
+            backends.append(self._search_wikipedia)
         return backends
 
     def _cache(self, backend: str, query: str, payload: Any) -> None:
@@ -123,6 +125,35 @@ class SearchManager:
             )
             for item in payload.get("articles", [])
         ]
+
+    def _search_wikipedia(self, query: str) -> list[SearchResult]:
+        params = {
+            "action": "query",
+            "format": "json",
+            "list": "search",
+            "srsearch": query,
+            "srlimit": self.max_results,
+            "srprop": "size|wordcount|timestamp",
+        }
+        response = requests.get("https://en.wikipedia.org/w/api.php", params=params, timeout=20, headers=self.headers)
+        response.raise_for_status()
+        payload = response.json()
+        self._cache("wikipedia", query, payload)
+        results = []
+        for item in payload.get("query", {}).get("search", []):
+            results.append(
+                SearchResult(
+                    backend="wikipedia",
+                    title=item.get("title") or "",
+                    url=f"https://en.wikipedia.org/wiki/{item.get('title', '').replace(' ', '_')}",
+                    snippet=item.get("snippet") or "",
+                    source="Wikipedia",
+                    published_date=item.get("timestamp"),
+                    score=float(item.get("size") or 0.0),
+                    raw=item,
+                )
+            )
+        return results
 
     def _balanced_dedupe(self, backend_results: list[list[SearchResult]]) -> list[SearchResult]:
         seen: set[str] = set()

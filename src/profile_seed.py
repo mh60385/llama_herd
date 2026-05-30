@@ -55,6 +55,44 @@ WIKIPEDIA_VITAL_LEVEL4 = [
     "Art history", "Painting", "Sculpture", "Drawing", "Printmaking", "Photography",
 ]
 
+# Categorized Wikipedia Vital Articles for balanced seeding
+WIKIPEDIA_VITAL_CATEGORIES = {
+    "geography": ["Africa", "Antarctica", "Asia", "Europe", "North America", "Oceania", "South America",
+                   "Atlantic Ocean", "Indian Ocean", "Pacific Ocean", "Arctic Ocean", "Earth"],
+    "society": ["Geography", "History", "Politics", "Economics", "Culture", "Society",
+                "Population", "Demographics", "Migration", "Urbanization", "Family", "Gender"],
+    "science": ["Science", "Mathematics", "Physics", "Chemistry", "Biology", "Medicine", "Astronomy",
+               "Scientific method", "Discovery", "Invention", "Experiment", "Theory",
+               "Environment", "Ecology", "Conservation", "Climate", "Biodiversity"],
+    "arts": ["Art", "Visual arts", "Painting", "Drawing", "Photography", "Sculpture", "Calligraphy",
+             "Music", "Literature", "Cinema", "Theatre", "Architecture",
+             "Performing arts", "Dance", "Opera", "Film", "Film genres", "Animation", "Documentary"],
+    "technology": ["Technology", "Engineering", "Computing", "Transportation", "Communication", "Energy",
+                   "Space", "Astronomy", "Planets", "Stars", "Galaxies", "Cosmology",
+                   "Civil engineering", "Mechanical engineering", "Electrical engineering"],
+    "health": ["Health", "Disease", "Medicine", "Nutrition", "Public health",
+               "Vaccination", "Surgery", "Pharmacology", "Medicine history"],
+    "humanities": ["Philosophy", "Religion", "Psychology", "Anthropology", "Sociology", "Linguistics",
+                  "Language", "Writing", "Alphabet", "Translation",
+                  "Literary genres", "Novel", "Poetry", "Drama", "Essay", "Biography"],
+    "sports": ["Sports", "Olympic Games", "Football", "Cricket", "Basketball", "Athletics",
+              "Music genres", "Classical music", "Jazz", "Rock music", "Hip hop", "Folk music"],
+    "food": ["Agriculture", "Food", "Cooking", "Cuisine", "Baking", "Brewing",
+             "Preservation", "Fermentation", "Food preparation"],
+    "economy": ["Trade", "Commerce", "Industry", "Manufacturing", "Labor", "Economy",
+                "Money", "Finance", "Banking", "Currency", "Taxation", "Wealth"],
+    "governance": ["Law", "Justice", "Human rights", "Democracy", "Government", "Constitution",
+                   "War", "Peace", "Conflict", "Diplomacy", "Military", "Strategy"],
+    "media": ["Mass media", "Journalism", "Newspaper", "Radio", "Television", "Internet"],
+    "transport": ["Transport", "Roads", "Rail transport", "Shipping", "Aviation", "Spaceflight"],
+    "culture": ["Clothing", "Fashion", "Textiles", "Footwear", "Jewelry", "Costume",
+                "Holidays", "Festivals", "Ceremonies", "Rituals", "Traditions", "Celebrations",
+                "Religions", "Christianity", "Islam", "Hinduism", "Buddhism", "Judaism", "Sikhism",
+                "Mythology", "Folklore", "Legends", "Fairy tales", "Epic poetry", "Oral tradition"],
+    "leisure": ["Games", "Board games", "Card games", "Video games", "Puzzles", "Gambling",
+               "Hobbies", "Gardening", "Cooking", "Crafts", "Collecting", "Model building"],
+}
+
 
 def get_wikipedia_vital_articles_pool(level: int = 4, use_cache: bool = True) -> list[str]:
     """
@@ -246,13 +284,24 @@ def _create_wikipedia_seeded_profile(
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
     rng = random.Random(digest)
     
-    # Get Wikipedia Vital Articles pool (static snapshot for reproducibility)
-    interest_pool = get_wikipedia_vital_articles_pool(level, use_cache)
+    # Use categorized Wikipedia topics for balanced diversity
+    categories = list(WIKIPEDIA_VITAL_CATEGORIES.keys())
     
-    # Filter to reasonable length and remove duplicates
-    interest_pool = list(set([t for t in interest_pool if 3 <= len(t) <= 40]))
+    # Select 3 different categories and pick 1 interest from each
+    selected_categories = rng.sample(categories, k=min(3, len(categories)))
+    interests = []
+    for cat in selected_categories:
+        cat_topics = [t for t in WIKIPEDIA_VITAL_CATEGORIES[cat] if 3 <= len(t) <= 40]
+        if cat_topics:
+            interests.append(rng.choice(cat_topics))
     
-    num_interests = 3
+    # Fallback to flat pool if category selection fails
+    if len(interests) < 3:
+        interest_pool = get_wikipedia_vital_articles_pool(level, use_cache)
+        interest_pool = list(set([t for t in interest_pool if 3 <= len(t) <= 40]))
+        remaining = rng.sample(interest_pool, k=min(3 - len(interests), len(interest_pool)))
+        interests.extend(remaining)
+    
     search_style = rng.choice(["source-diverse and concrete", "curious and contrastive", "broad but evidence-seeking"])
     uncertainty_style = rng.choice(["state uncertainty plainly", "separate weak signals from evidence"])
     self_rules = ["treat seed material as a starting point"]
@@ -260,9 +309,7 @@ def _create_wikipedia_seeded_profile(
         f"I am {name}, a seeded local research profile using public-world source material. "
         "Lasting interests require repeated evidence."
     )
-    source_label = f"wikipedia_vital_level{level}"
-    
-    interests = rng.sample(interest_pool, k=min(num_interests, len(interest_pool)))
+    source_label = f"wikipedia_vital_categories_level{level}"
     
     return {
         "profile_seed": seed,
