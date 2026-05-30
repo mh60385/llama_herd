@@ -56,16 +56,23 @@ New interests are promoted only after recurrence checks.
 Each episode:
 
 1. Loads the agent profile.
-2. Prompts the model for one search query from stable interests.
-3. Searches through SearXNG.
+2. Prompts the model for one search query from stable interests (temperature **1.0** for diversity).
+3. Searches through **SearXNG, Wikipedia, GDELT** backends (configurable).
 4. Asks the model to select one source.
 5. Fetches and summarizes the source.
-6. Writes diary and reflection JSON.
-7. Extracts weak observations.
-8. Applies deterministic recurrence rules.
-9. Saves episode logs and raw model outputs.
+6. Writes diary JSON.
+7. **Reflection removed** for efficiency (saves ~15-20% LLM calls).
+8. Extracts weak observations.
+9. Applies deterministic recurrence rules (thresholds relaxed to **2+ episodes, 1+ domain**).
+10. Saves episode logs and raw model outputs.
 
 One source or one episode cannot directly become stable profile state.
+
+**Efficiency optimizations:**
+- Temperature increased to **1.0** for more diverse exploration
+- Reflection step removed to reduce LLM calls
+- Anti-anchoring threshold lowered to **0.50** to break feedback loops
+- Interest promotion thresholds relaxed for faster adaptation
 
 ## Production Run
 
@@ -129,6 +136,13 @@ Drift summary:
 ```bash
 ./.venv/bin/python scripts/analyze_drift.py
 ```
+
+This produces **semantic drift analysis** with query and diary drift scores to quantify agent exploration behavior. Current implementation uses Jaccard similarity as a lightweight placeholder; designed for upgrade to embedding-based analysis when needed.
+
+**Drift score interpretation:**
+- **<0.3 stuck:** Agent is repeating/reusing queries (feedback loop detected)
+- **0.3-0.7 exploring:** Normal topic evolution
+- **>0.7 diverse:** Agent is jumping between unrelated topics (high diversity)
 
 Embedding-heavy article metrics should be computed offline after the run so
 they do not compete with llama.cpp for memory.

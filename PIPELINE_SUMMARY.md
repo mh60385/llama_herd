@@ -9,15 +9,21 @@ This project runs local LLM “research episodes” to study how an agent profil
    - seeded initial profile
    - stable interests only
    - recent memory summary
-3. Ask the local LLM for one web search query.
-4. Search through SearXNG.
+3. Ask the local LLM for one web search query (temperature **1.0** for diversity).
+4. Search through **SearXNG, Wikipedia, GDELT** backends (if enabled).
 5. Ask the model to select one source.
 6. Fetch/read the source when possible.
 7. Ask the model to summarize the source.
-8. Ask the model for a diary entry and reflection.
-9. Extract weak observations from the episode.
-10. Apply deterministic recurrence rules before anything becomes stable profile state.
-11. Save JSONL and SQLite episode records.
+8. Ask the model for a diary entry.
+9. **Reflection removed** for efficiency (saves 1 LLM call/episode).
+10. Extract weak observations from the episode.
+11. Apply deterministic recurrence rules before anything becomes stable profile state.
+12. Save JSONL and SQLite episode records.
+
+**Efficiency updates:**
+- Temperature increased to **1.0** for more diverse query generation
+- Reflection step removed to reduce LLM calls by ~15-20%
+- Anti-anchoring threshold lowered to **0.50** to break feedback loops sooner
 
 ## Profile State Model
 
@@ -35,10 +41,12 @@ One search result must not directly become a stable interest, preferred source, 
 
 Candidate interests are promoted only when:
 
-- they appear in 3+ episodes,
-- they appear across 2+ source domains,
+- they appear in **2+ episodes** (lowered from 3 for faster adaptation),
+- they appear across **1+ source domains** (lowered from 2 for faster adaptation),
 - the relevant episode outputs passed JSON validation,
 - they were not caused by near-identical repeated queries.
+
+**Efficiency update:** Thresholds were relaxed to allow faster interest evolution while maintaining conservative profile updates. This helps agents adapt quicker to new topics without requiring excessive evidence.
 
 Malformed `source_summary` or profile/observation JSON blocks stable profile promotion. The raw observation can still be logged if safe.
 
@@ -61,6 +69,44 @@ tentative_leak_count: 0
 recent_query_echo_count: 0
 passed: true
 ```
+
+## Search Backends
+
+**Note:** For research reproducibility, **use SearXNG only** (disable Wikipedia and GDELT). This ensures consistent results across runs.
+
+The pipeline supports multiple search backends configured via `.env`:
+
+| Backend | Status | Config | Notes |
+|---------|--------|--------|-------|
+| SearXNG | **Recommended** | `SEARXNG_URL` | Metasearch aggregator (DuckDuckGo, Google, Brave) |
+| Wikipedia | Optional | `WIKIPEDIA_ENABLED=true` | Encyclopedic content via API |
+| GDELT | Optional | `GDELT_ENABLED=true` | News articles (rate-limited) |
+| Crossref | Optional | `CROSSREF_MAILTO` | Academic papers |
+
+**Wikipedia seeding:** Agent initialization now uses **categorized Wikipedia Vital Articles** (geography, society, science, arts, technology, etc.) to ensure balanced starting interests across different domains. Each new agent picks 1 interest from 3 different categories.
+
+## Baseline Agents
+
+For research-grade comparison, baseline agents are provided in `src/baselines.py`:
+
+| Baseline | Purpose | Expected Drift |
+|----------|---------|----------------|
+| `random` | Random queries from interest pool | High (0.8-1.0) |
+| `static` | Fixed interests, minor variations | Medium (0.5-0.8) |
+| `echo` | Repeats identical query | Zero (0.0) |
+| `repeating` | Cycles through small interest set | Low-Medium (0.2-0.6) |
+
+**Comparison script:**
+```bash
+python scripts/compare_baselines.py --episodes 20
+```
+
+This produces a table comparing LLM agent drift scores against baselines.
+
+**Research use:**
+- If LLM agent drift ≈ random agent drift → LLM not adding value
+- If LLM agent drift > echo agent drift → Anti-anchoring is working
+- If LLM agent drift > static agent drift → Adaptation is adding value
 
 ## System Guardrails
 
@@ -235,6 +281,55 @@ profile_seed -> SHA-256 hash -> deterministic sample of 3 public-world interests
 This keeps agent starts reproducible and avoids using live search or model
 generation before the longitudinal run begins. New interests are added only
 through later episode evidence and recurrence checks.
+
+## Semantic Drift Analysis
+
+The `analyze()` function in `src/drift_analysis.py` now includes **semantic drift metrics** to quantify agent exploration vs. repetition.
+
+### Metrics
+
+| Metric | Range | Interpretation |
+|--------|-------|----------------|
+| Query drift | 0.0-1.0 | **<0.3 stuck**, 0.3-0.7 exploring, **>0.7 diverse** |
+| Diary drift | 0.0-1.0 | **<0.3 stuck**, 0.3-0.7 exploring, **>0.7 diverse** |
+
+**Implementation:** Currently uses **Jaccard similarity** on word sets as a lightweight placeholder. Designed for easy upgrade to sentence-transformers embeddings for production use.
+
+### Example Output
+
+```
+--- Semantic Drift Analysis (placeholder: Jaccard similarity) ---
+Query drift score: 0.750 [diverse]
+Diary drift score: 0.829 [diverse]
+
+  Interpretation:
+  - stuck (<0.3): Agent is repeating/reusing queries
+  - exploring (0.3-0.7): Normal topic evolution
+  - diverse (>0.7): Agent is jumping between unrelated topics
+```
+
+### Thresholds
+
+- **stuck (<0.3):** High repetition, agent likely in a loop
+- **exploring (0.3-0.7):** Normal research behavior
+- **diverse (>0.7):** High variation, potentially scattered
+
+### Upgrade Path
+
+**UPGRADE REQUIRED FOR PUBLICATION:** Current implementation uses Jaccard similarity (word overlap) as a placeholder. This is **not suitable for research publication** - semantic drift metrics must use embeddings.
+
+To use production-grade semantic similarity:
+
+```python
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('all-MiniLM-L6-v2')
+# Replace _jaccard_similarity with embedding-based similarity
+```
+
+Add to requirements.txt:
+```
+sentence-transformers>=2.2.0
+```
 
 ## Offline Metrics
 

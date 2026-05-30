@@ -13,11 +13,12 @@ language, see `RESEARCH_README.md`.
 
 - llama.cpp OpenAI-compatible API: `http://127.0.0.1:10000/v1`
 - SearXNG search endpoint: `http://127.0.0.1:8888/search`
-- Initial profile seeding defaults to a broad deterministic public-world profile.
-- Search episodes rely on SearXNG results only by default.
+- Initial profile seeding defaults to a **categorized Wikipedia Vital Articles** profile for balanced diversity.
+- Search episodes use **SearXNG by default**, with optional Wikipedia and GDELT backends.
 - One local small instruct model served through llama.cpp
 - Reasoning treated as off; prompts require short structured JSON and never request chain-of-thought
 - Runs are sequential for Jetson memory friendliness
+- **Temperature set to 1.0** for maximum query diversity
 
 ## Setup
 
@@ -158,6 +159,8 @@ Analyze drift:
 ```bash
 python scripts/analyze_drift.py
 ```
+
+This now includes **semantic drift analysis** (query and diary drift scores) using Jaccard similarity as a placeholder for embedding-based analysis.
 
 Compute article-grade metrics offline after a run:
 

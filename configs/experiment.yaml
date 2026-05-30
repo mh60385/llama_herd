@@ -4,7 +4,7 @@ max_search_results: 10
 max_source_chars: 4000
 temperature: 1.0
 top_p: 0.9
-wikipedia_enabled: true
+wikipedia_enabled: false
 inter_episode_delay_seconds: 2.0
 system_monitor_enabled: true
 llm_container_name: llama-server
